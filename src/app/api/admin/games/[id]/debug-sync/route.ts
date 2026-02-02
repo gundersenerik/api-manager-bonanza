@@ -80,24 +80,92 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       } : null,
     })
 
-    // Step 4: Try to fetch users from SWUSH (first page only for debug)
-    const usersResponse = await swush.getUsers(game.subsite_key, game.game_key, 1, 10)
+    // Step 4: Try to fetch users from SWUSH with RAW fetch to see exactly what happens
+    const usersUrl = `${swushBaseUrl}/season/subsites/${game.subsite_key}/games/${game.game_key}/users?page=1&pageSize=10&includeUserteams=true`
 
-    addStep('swush_users_api', {
-      success: !usersResponse.error,
-      status: usersResponse.status,
-      error: usersResponse.error,
-      pagination: usersResponse.data ? {
-        page: usersResponse.data.page,
-        pages: usersResponse.data.pages,
-        pageSize: usersResponse.data.pageSize,
-        usersTotal: usersResponse.data.usersTotal,
-      } : null,
+    addStep('swush_users_request', {
+      url: usersUrl,
+      headers: {
+        'x-api-key': `${swushApiKey?.substring(0, 8)}...${swushApiKey?.substring(swushApiKey.length - 4)}`,
+        'Accept': 'application/json',
+      },
     })
 
+    let usersRawResponse: Response | null = null
+    let usersResponseBody: string | null = null
+    let usersResponseHeaders: Record<string, string> = {}
+
+    try {
+      usersRawResponse = await fetch(usersUrl, {
+        method: 'GET',
+        headers: {
+          'x-api-key': swushApiKey!,
+          'Accept': 'application/json',
+        },
+      })
+
+      // Capture response headers
+      usersRawResponse.headers.forEach((value, key) => {
+        usersResponseHeaders[key] = value
+      })
+
+      usersResponseBody = await usersRawResponse.text()
+    } catch (fetchError) {
+      addStep('swush_users_fetch_error', {
+        error: fetchError instanceof Error ? fetchError.message : 'Unknown fetch error',
+      })
+    }
+
+    addStep('swush_users_api', {
+      success: usersRawResponse?.ok ?? false,
+      status: usersRawResponse?.status,
+      statusText: usersRawResponse?.statusText,
+      response_headers: usersResponseHeaders,
+      response_body_preview: usersResponseBody?.substring(0, 500),
+    })
+
+    // Parse the response if successful
+    let usersData: { users?: unknown[]; page?: number; pages?: number; pageSize?: number; usersTotal?: number } | null = null
+    if (usersRawResponse?.ok && usersResponseBody) {
+      try {
+        usersData = JSON.parse(usersResponseBody)
+      } catch {
+        addStep('swush_users_parse_error', { error: 'Failed to parse JSON' })
+      }
+    }
+
+    if (usersData) {
+      addStep('swush_users_parsed', {
+        pagination: {
+          page: usersData.page,
+          pages: usersData.pages,
+          pageSize: usersData.pageSize,
+          usersTotal: usersData.usersTotal,
+        },
+      })
+    }
+
     // Step 5: Analyze user data structure
-    if (usersResponse.data?.users) {
-      const users = usersResponse.data.users
+    interface DebugUserteam {
+      id: number
+      name: string
+      score: number
+      rank: number
+      roundScore?: number
+      roundRank?: number
+      roundJump?: number
+      lineupElementIds?: number[]
+    }
+    interface DebugUser {
+      id: number
+      name: string
+      externalId?: string
+      injured?: number
+      suspended?: number
+      userteams?: DebugUserteam[]
+    }
+    if (usersData?.users && Array.isArray(usersData.users)) {
+      const users = usersData.users as DebugUser[]
       const usersWithExternalId = users.filter(u => u.externalId)
 
       addStep('users_analysis', {
