@@ -57,7 +57,9 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       base_url_set: !!swushBaseUrl,
       base_url_value: swushBaseUrl || 'NOT SET',
       api_key_set: !!swushApiKey,
-      api_key_preview: swushApiKey ? `${swushApiKey.substring(0, 8)}...` : 'NOT SET',
+      api_key_preview: swushApiKey ? `${swushApiKey.substring(0, 8)}...${swushApiKey.substring(swushApiKey.length - 4)}` : 'NOT SET',
+      api_key_length: swushApiKey?.length || 0,
+      api_key_expected_length: 40,
     })
 
     if (!swushBaseUrl || !swushApiKey) {
