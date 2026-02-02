@@ -8,12 +8,14 @@ import {
   RefreshCw,
   CheckCircle,
   XCircle,
+  AlertCircle,
 } from 'lucide-react'
 import { Game } from '@/types'
 
 export default function GamesPage() {
   const [games, setGames] = useState<Game[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchGames()
@@ -25,9 +27,13 @@ export default function GamesPage() {
       const data = await res.json()
       if (data.success) {
         setGames(data.data || [])
+        setError(null)
+      } else {
+        setError(data.error || `Request failed with status ${res.status}`)
       }
     } catch (error) {
       console.error('Failed to fetch games:', error)
+      setError(error instanceof Error ? error.message : 'Failed to fetch games')
     } finally {
       setLoading(false)
     }
@@ -73,7 +79,23 @@ export default function GamesPage() {
         </Link>
       </div>
 
-      {games.length === 0 ? (
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+          <div>
+            <p className="text-red-700 font-medium">Failed to load games</p>
+            <p className="text-red-600 text-sm">{error}</p>
+          </div>
+          <button
+            onClick={fetchGames}
+            className="ml-auto px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!error && games.length === 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
           <Gamepad2 className="w-12 h-12 mx-auto text-gray-300 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No games yet</h3>
@@ -86,7 +108,9 @@ export default function GamesPage() {
             Add Game
           </Link>
         </div>
-      ) : (
+      )}
+
+      {games.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full">
             <thead>
