@@ -53,7 +53,6 @@ export class SwushClient {
         headers: {
           'x-api-key': this.apiKey,
           'Accept': 'application/json',
-          'Content-Type': 'application/json',
         },
         signal: controller.signal,
       })
