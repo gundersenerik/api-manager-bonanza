@@ -21,6 +21,22 @@ interface RouteContext {
 }
 
 /**
+ * Extract the numeric user ID from various external ID formats.
+ * Supports:
+ * - Plain numeric IDs: "699590"
+ * - Schibsted URN format: "sdrn:schibsted.com:user:699590"
+ */
+function normalizeExternalId(externalId: string): string {
+  // Check for Schibsted URN format: sdrn:schibsted.com:user:XXXXX
+  const schibstedMatch = externalId.match(/^sdrn:schibsted\.com:user:(.+)$/)
+  if (schibstedMatch && schibstedMatch[1]) {
+    return schibstedMatch[1]
+  }
+  // Return as-is for plain IDs
+  return externalId
+}
+
+/**
  * GET /api/v1/users/:externalId/games/:gameKey
  *
  * Braze Connected Content endpoint
@@ -62,7 +78,9 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     return errorResponse('Invalid request parameters', 400)
   }
 
-  const { externalId, gameKey } = validation.data
+  const { gameKey } = validation.data
+  // Normalize external ID to handle Braze's Schibsted URN format
+  const externalId = normalizeExternalId(validation.data.externalId)
   const supabase = supabaseAdmin()
 
   try {
