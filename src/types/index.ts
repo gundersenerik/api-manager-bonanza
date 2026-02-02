@@ -101,6 +101,8 @@ export interface Game {
   total_rounds: number
   round_state: string | null
   next_trade_deadline: string | null
+  current_round_start: string | null
+  current_round_end: string | null
   sync_interval_minutes: number
   last_synced_at: string | null
   swush_game_id: number | null

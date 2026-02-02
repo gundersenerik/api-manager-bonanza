@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { createSwushClient } from './swush-client'
+import { alertService } from './alert-service'
 import { log } from '@/lib/logger'
 import {
   Game,
@@ -112,14 +113,21 @@ export class SyncService {
     const swushGame = response.data
     const currentRound = this.findCurrentRound(swushGame.rounds)
 
+    // Also find the next pending round for timing info
+    const nextPendingRound = swushGame.rounds.find(r => r.state === 'Pending')
+    // Find the most recently ended round for post-round sync
+    const endedRound = swushGame.rounds.find(r => r.state === 'Ended' || r.state === 'EndedLastest')
+
     const { error } = await this.supabase
       .from('games')
       .update({
         swush_game_id: swushGame.gameId,
         current_round: swushGame.currentRoundIndex,
         total_rounds: swushGame.rounds.length,
-        round_state: currentRound?.state || null,
-        next_trade_deadline: currentRound?.tradeCloses || null,
+        round_state: currentRound?.state || endedRound?.state || null,
+        next_trade_deadline: currentRound?.tradeCloses || nextPendingRound?.tradeCloses || null,
+        current_round_start: currentRound?.start || nextPendingRound?.start || null,
+        current_round_end: currentRound?.end || endedRound?.end || null,
         users_total: swushGame.userteamsCount,
         game_url: `${GAME_BASE_URL}/${game.game_key}`,
         last_synced_at: new Date().toISOString(),
@@ -187,98 +195,154 @@ export class SyncService {
   }
 
   /**
-   * Sync all users for a game
+   * Sync all users for a game - with progressive saving
+   * Fetches page by page and saves immediately after each fetch
+   * This ensures partial data is preserved if sync is interrupted
    */
   async syncUsers(
     game: Game,
     onProgress?: (current: number, total: number) => void
   ): Promise<SyncResult> {
-    log.sync.info({ gameKey: game.game_key }, 'Syncing users')
+    log.sync.info({ gameKey: game.game_key }, 'Syncing users with progressive saving')
 
-    const response = await this.swush.getAllUsers(
-      game.subsite_key,
-      game.game_key,
-      onProgress
-    )
+    // First request to get total pages
+    const firstResponse = await this.swush.getUsers(game.subsite_key, game.game_key, 1)
 
-    if (response.error || !response.data) {
-      return { success: false, error: response.error || 'Failed to fetch users' }
+    if (firstResponse.error || !firstResponse.data) {
+      return { success: false, error: firstResponse.error || 'Failed to fetch users' }
     }
 
-    const users = response.data.users
-    log.sync.info({ totalUsers: users.length, gameKey: game.game_key }, 'Fetched users from SWUSH')
-
-    // Filter users with externalId and log how many were filtered
-    const usersWithExternalId = users.filter((user: SwushUser) => user.externalId)
-    log.sync.info({
-      totalUsers: users.length,
-      usersWithExternalId: usersWithExternalId.length,
-      gameKey: game.game_key,
-    }, 'Filtered users with externalId')
-
-    if (usersWithExternalId.length === 0) {
-      log.sync.warn({ gameKey: game.game_key }, 'No users with externalId found - nothing to sync')
-      return { success: true, usersSynced: 0 }
-    }
+    const totalPages = firstResponse.data.pages
+    const totalUsers = firstResponse.data.usersTotal
+    log.sync.info({ totalPages, totalUsers, gameKey: game.game_key }, 'Starting progressive user sync')
 
     let syncedCount = 0
     let errorCount = 0
+    let failedPages: number[] = []
 
-    // Upsert users in batches
-    for (let i = 0; i < usersWithExternalId.length; i += BATCH_SIZE) {
-      const batch = usersWithExternalId.slice(i, i + BATCH_SIZE)
+    // Process first page
+    const firstPageResult = await this.saveUsersPage(game, firstResponse.data.users, 1)
+    if (firstPageResult.success) {
+      syncedCount += firstPageResult.count
+    } else {
+      errorCount++
+      failedPages.push(1)
+    }
+    onProgress?.(1, totalPages)
 
-      const upsertData = batch.map((user: SwushUser) => {
-        const userteam = user.userteams?.[0] // Get primary team
+    // Fetch and save remaining pages
+    for (let page = 2; page <= totalPages; page++) {
+      const response = await this.swush.getUsers(game.subsite_key, game.game_key, page)
 
-        return {
-          external_id: String(user.externalId), // Ensure string
-          game_id: game.id,
-          swush_user_id: typeof user.id === 'string' ? parseInt(user.id, 10) : user.id, // Ensure integer
-          team_name: userteam?.name ?? user.name ?? 'Unknown',
-          score: userteam?.score ?? 0,
-          rank: userteam?.rank ?? null,
-          round_score: userteam?.roundScore ?? 0,
-          round_rank: userteam?.roundRank ?? null,
-          round_jump: userteam?.roundJump ?? 0,
-          injured_count: user.injured ?? 0,
-          suspended_count: user.suspended ?? 0,
-          lineup_element_ids: userteam?.lineupElementIds ?? [],
-          synced_at: new Date().toISOString(),
-        }
-      })
-
-      const { error } = await this.supabase
-        .from('user_game_stats')
-        .upsert(upsertData, {
-          onConflict: 'external_id,game_id',
-        })
-
-      if (error) {
+      if (response.error || !response.data) {
         log.sync.error({
-          err: error,
-          batchIndex: i,
-          batchSize: upsertData.length,
-          sampleData: upsertData[0], // Log first record for debugging
+          page,
+          totalPages,
+          error: response.error,
           gameKey: game.game_key,
-        }, 'Failed to upsert users batch')
+        }, 'Failed to fetch page after retries')
         errorCount++
+        failedPages.push(page)
         continue
       }
 
-      syncedCount += upsertData.length
+      // Save this page immediately
+      const pageResult = await this.saveUsersPage(game, response.data.users, page)
+      if (pageResult.success) {
+        syncedCount += pageResult.count
+      } else {
+        errorCount++
+        failedPages.push(page)
+      }
+
+      onProgress?.(page, totalPages)
+
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 100))
     }
 
-    if (errorCount > 0) {
+    // Log summary
+    if (failedPages.length > 0) {
       log.sync.warn({
         syncedCount,
         errorCount,
+        failedPages,
+        totalPages,
         gameKey: game.game_key,
-      }, 'Completed users sync with some errors')
+      }, 'Completed users sync with some failed pages')
+    } else {
+      log.sync.info({
+        syncedCount,
+        totalPages,
+        gameKey: game.game_key,
+      }, 'Completed users sync successfully')
     }
 
-    log.sync.info({ count: syncedCount, gameKey: game.game_key }, 'Synced users')
+    // Consider sync failed if more than 10% of pages failed
+    const failureRate = failedPages.length / totalPages
+    if (failureRate > 0.1) {
+      return {
+        success: false,
+        error: `Too many failed pages: ${failedPages.length}/${totalPages} (${Math.round(failureRate * 100)}%)`,
+        usersSynced: syncedCount,
+      }
+    }
+
     return { success: true, usersSynced: syncedCount }
+  }
+
+  /**
+   * Save a single page of users to the database
+   */
+  private async saveUsersPage(
+    game: Game,
+    users: SwushUser[],
+    pageNumber: number
+  ): Promise<{ success: boolean; count: number }> {
+    // Filter users with externalId
+    const usersWithExternalId = users.filter((user: SwushUser) => user.externalId)
+
+    if (usersWithExternalId.length === 0) {
+      return { success: true, count: 0 }
+    }
+
+    const upsertData = usersWithExternalId.map((user: SwushUser) => {
+      const userteam = user.userteams?.[0] // Get primary team
+
+      return {
+        external_id: String(user.externalId),
+        game_id: game.id,
+        swush_user_id: typeof user.id === 'string' ? parseInt(user.id, 10) : user.id,
+        team_name: userteam?.name ?? user.name ?? 'Unknown',
+        score: userteam?.score ?? 0,
+        rank: userteam?.rank ?? null,
+        round_score: userteam?.roundScore ?? 0,
+        round_rank: userteam?.roundRank ?? null,
+        round_jump: userteam?.roundJump ?? 0,
+        injured_count: user.injured ?? 0,
+        suspended_count: user.suspended ?? 0,
+        lineup_element_ids: userteam?.lineupElementIds ?? [],
+        synced_at: new Date().toISOString(),
+      }
+    })
+
+    const { error } = await this.supabase
+      .from('user_game_stats')
+      .upsert(upsertData, {
+        onConflict: 'external_id,game_id',
+      })
+
+    if (error) {
+      log.sync.error({
+        err: error,
+        page: pageNumber,
+        usersInPage: upsertData.length,
+        gameKey: game.game_key,
+      }, 'Failed to save users page')
+      return { success: false, count: 0 }
+    }
+
+    return { success: true, count: upsertData.length }
   }
 
   /**
@@ -349,6 +413,16 @@ export class SyncService {
         })
       }
 
+      // Send alert for sync failure
+      await alertService.alertSyncFailure({
+        type: 'sync_failure',
+        gameKey: game.game_key,
+        gameName: game.name,
+        error: errorMessage,
+        timestamp: new Date().toISOString(),
+        lastSuccessfulSync: game.last_synced_at || undefined,
+      })
+
       return { success: false, error: errorMessage }
     }
   }
@@ -398,7 +472,53 @@ export class SyncService {
   }
 
   /**
-   * Get games that need syncing based on their sync interval
+   * Check if a game is in a critical sync period (round starting/ending soon)
+   * Returns the reason if critical, null otherwise
+   */
+  private isInCriticalPeriod(game: Game): { critical: boolean; reason: string } {
+    const now = new Date()
+
+    // Check if round is starting within 2 hours (pre-round sync for email)
+    if (game.current_round_start) {
+      const roundStart = new Date(game.current_round_start)
+      const hoursUntilStart = (roundStart.getTime() - now.getTime()) / (1000 * 60 * 60)
+
+      if (hoursUntilStart > 0 && hoursUntilStart <= 2) {
+        return { critical: true, reason: `Round starting in ${Math.round(hoursUntilStart * 60)} minutes` }
+      }
+    }
+
+    // Check if trade deadline is within 2 hours
+    if (game.next_trade_deadline) {
+      const deadline = new Date(game.next_trade_deadline)
+      const hoursUntilDeadline = (deadline.getTime() - now.getTime()) / (1000 * 60 * 60)
+
+      if (hoursUntilDeadline > 0 && hoursUntilDeadline <= 2) {
+        return { critical: true, reason: `Trade deadline in ${Math.round(hoursUntilDeadline * 60)} minutes` }
+      }
+    }
+
+    // Check if round ended within last hour (post-round sync for results email)
+    if (game.current_round_end && (game.round_state === 'Ended' || game.round_state === 'EndedLastest')) {
+      const roundEnd = new Date(game.current_round_end)
+      const hoursSinceEnd = (now.getTime() - roundEnd.getTime()) / (1000 * 60 * 60)
+
+      if (hoursSinceEnd >= 0 && hoursSinceEnd <= 1) {
+        return { critical: true, reason: `Round ended ${Math.round(hoursSinceEnd * 60)} minutes ago` }
+      }
+    }
+
+    return { critical: false, reason: '' }
+  }
+
+  /**
+   * Get games that need syncing - smart logic aware of round timing
+   *
+   * Sync priorities:
+   * 1. CRITICAL: Round starting within 2 hours (pre-round email)
+   * 2. CRITICAL: Trade deadline within 2 hours
+   * 3. CRITICAL: Round ended within last hour (results email)
+   * 4. ROUTINE: Last sync exceeds sync_interval_minutes
    */
   async getGamesDueForSync(): Promise<Game[]> {
     const { data: games, error } = await this.supabase
@@ -412,15 +532,47 @@ export class SyncService {
     }
 
     const now = new Date()
+    const gamesDue: Game[] = []
 
-    return games.filter((game: Game) => {
-      if (!game.last_synced_at) return true // Never synced
+    for (const game of games as Game[]) {
+      // Never synced - always sync
+      if (!game.last_synced_at) {
+        log.sync.info({ gameKey: game.game_key }, 'Game never synced, adding to queue')
+        gamesDue.push(game)
+        continue
+      }
 
       const lastSync = new Date(game.last_synced_at)
       const minutesSinceSync = (now.getTime() - lastSync.getTime()) / (1000 * 60)
 
-      return minutesSinceSync >= game.sync_interval_minutes
-    })
+      // Check for critical period
+      const { critical, reason } = this.isInCriticalPeriod(game)
+
+      if (critical) {
+        // In critical period - sync if last sync was more than 30 minutes ago
+        if (minutesSinceSync >= 30) {
+          log.sync.info({
+            gameKey: game.game_key,
+            reason,
+            minutesSinceSync: Math.round(minutesSinceSync),
+          }, 'Critical period sync needed')
+          gamesDue.push(game)
+        }
+        continue
+      }
+
+      // Routine sync based on configured interval
+      if (minutesSinceSync >= game.sync_interval_minutes) {
+        log.sync.debug({
+          gameKey: game.game_key,
+          minutesSinceSync: Math.round(minutesSinceSync),
+          interval: game.sync_interval_minutes,
+        }, 'Routine sync due')
+        gamesDue.push(game)
+      }
+    }
+
+    return gamesDue
   }
 }
 
