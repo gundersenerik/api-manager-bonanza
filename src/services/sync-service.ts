@@ -206,35 +206,47 @@ export class SyncService {
     }
 
     const users = response.data.users
+    log.sync.info({ totalUsers: users.length, gameKey: game.game_key }, 'Fetched users from SWUSH')
+
+    // Filter users with externalId and log how many were filtered
+    const usersWithExternalId = users.filter((user: SwushUser) => user.externalId)
+    log.sync.info({
+      totalUsers: users.length,
+      usersWithExternalId: usersWithExternalId.length,
+      gameKey: game.game_key,
+    }, 'Filtered users with externalId')
+
+    if (usersWithExternalId.length === 0) {
+      log.sync.warn({ gameKey: game.game_key }, 'No users with externalId found - nothing to sync')
+      return { success: true, usersSynced: 0 }
+    }
+
     let syncedCount = 0
+    let errorCount = 0
 
     // Upsert users in batches
-    for (let i = 0; i < users.length; i += BATCH_SIZE) {
-      const batch = users.slice(i, i + BATCH_SIZE)
+    for (let i = 0; i < usersWithExternalId.length; i += BATCH_SIZE) {
+      const batch = usersWithExternalId.slice(i, i + BATCH_SIZE)
 
-      const upsertData = batch
-        .filter((user: SwushUser) => user.externalId) // Only sync users with external ID
-        .map((user: SwushUser) => {
-          const userteam = user.userteams?.[0] // Get primary team
+      const upsertData = batch.map((user: SwushUser) => {
+        const userteam = user.userteams?.[0] // Get primary team
 
-          return {
-            external_id: user.externalId,
-            game_id: game.id,
-            swush_user_id: user.id,
-            team_name: userteam?.name ?? user.name,
-            score: userteam?.score ?? 0,
-            rank: userteam?.rank ?? null,
-            round_score: userteam?.roundScore ?? 0,
-            round_rank: userteam?.roundRank ?? null,
-            round_jump: userteam?.roundJump ?? 0,
-            injured_count: user.injured ?? 0,
-            suspended_count: user.suspended ?? 0,
-            lineup_element_ids: userteam?.lineupElementIds ?? [],
-            synced_at: new Date().toISOString(),
-          }
-        })
-
-      if (upsertData.length === 0) continue
+        return {
+          external_id: String(user.externalId), // Ensure string
+          game_id: game.id,
+          swush_user_id: typeof user.id === 'string' ? parseInt(user.id, 10) : user.id, // Ensure integer
+          team_name: userteam?.name ?? user.name ?? 'Unknown',
+          score: userteam?.score ?? 0,
+          rank: userteam?.rank ?? null,
+          round_score: userteam?.roundScore ?? 0,
+          round_rank: userteam?.roundRank ?? null,
+          round_jump: userteam?.roundJump ?? 0,
+          injured_count: user.injured ?? 0,
+          suspended_count: user.suspended ?? 0,
+          lineup_element_ids: userteam?.lineupElementIds ?? [],
+          synced_at: new Date().toISOString(),
+        }
+      })
 
       const { error } = await this.supabase
         .from('user_game_stats')
@@ -243,14 +255,29 @@ export class SyncService {
         })
 
       if (error) {
-        log.sync.error({ err: error }, 'Failed to upsert users batch')
+        log.sync.error({
+          err: error,
+          batchIndex: i,
+          batchSize: upsertData.length,
+          sampleData: upsertData[0], // Log first record for debugging
+          gameKey: game.game_key,
+        }, 'Failed to upsert users batch')
+        errorCount++
         continue
       }
 
       syncedCount += upsertData.length
     }
 
-    log.sync.info({ count: syncedCount }, 'Synced users')
+    if (errorCount > 0) {
+      log.sync.warn({
+        syncedCount,
+        errorCount,
+        gameKey: game.game_key,
+      }, 'Completed users sync with some errors')
+    }
+
+    log.sync.info({ count: syncedCount, gameKey: game.game_key }, 'Synced users')
     return { success: true, usersSynced: syncedCount }
   }
 
