@@ -53,6 +53,7 @@ export class SwushClient {
         headers: {
           'x-api-key': this.apiKey,
           'Accept': 'application/json',
+          'User-Agent': 'SWUSH-Manager/1.0',
         },
         signal: controller.signal,
       })
@@ -149,7 +150,7 @@ export class SwushClient {
     gameKey: string,
     page: number = 1,
     pageSize: number = MAX_PAGE_SIZE,
-    includeUserteams: boolean = false
+    includeUserteams: boolean = true
   ): Promise<SwushApiResponse<SwushUsersResponse>> {
     // SWUSH API has a maximum page size limit
     const actualPageSize = Math.min(pageSize, MAX_PAGE_SIZE)

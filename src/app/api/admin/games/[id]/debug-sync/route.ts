@@ -81,14 +81,14 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
     })
 
     // Step 4: Try to fetch users from SWUSH with RAW fetch to see exactly what happens
-    // Using includeUserteams=false to match working curl command
-    const usersUrl = `${swushBaseUrl}/season/subsites/${game.subsite_key}/games/${game.game_key}/users?includeUserteams=false&includeLineups=false&page=1&pageSize=10`
+    const usersUrl = `${swushBaseUrl}/season/subsites/${game.subsite_key}/games/${game.game_key}/users?includeUserteams=true&includeLineups=false&page=1&pageSize=10`
 
     addStep('swush_users_request', {
       url: usersUrl,
       headers: {
         'x-api-key': `${swushApiKey?.substring(0, 8)}...${swushApiKey?.substring(swushApiKey.length - 4)}`,
         'Accept': 'application/json',
+        'User-Agent': 'SWUSH-Manager/1.0',
       },
     })
 
@@ -102,6 +102,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
         headers: {
           'x-api-key': swushApiKey!,
           'Accept': 'application/json',
+          'User-Agent': 'SWUSH-Manager/1.0',
         },
       })
 
