@@ -13,6 +13,11 @@ import {
   Bell,
   Plus,
   Trash2,
+  Copy,
+  Check,
+  Code,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 import { Game, SyncLog, GameTrigger } from '@/types'
 
@@ -26,12 +31,41 @@ interface GameWithDetails extends Game {
   triggers?: GameTrigger[]
 }
 
+// Liquid tag documentation
+const liquidTags = [
+  { category: 'User Stats', tag: '{{response.data.user.team_name}}', description: 'User\'s team name' },
+  { category: 'User Stats', tag: '{{response.data.user.rank}}', description: 'Current overall rank' },
+  { category: 'User Stats', tag: '{{response.data.user.score}}', description: 'Total score' },
+  { category: 'User Stats', tag: '{{response.data.user.round_score}}', description: 'Score for current round' },
+  { category: 'User Stats', tag: '{{response.data.user.round_rank}}', description: 'Rank for current round' },
+  { category: 'User Stats', tag: '{{response.data.user.position_change}}', description: 'Positions gained/lost this round' },
+  { category: 'User Stats', tag: '{{response.data.user.percentile}}', description: 'User\'s percentile (0-100)' },
+  { category: 'User Stats', tag: '{{response.data.user.injured_count}}', description: 'Number of injured players in lineup' },
+  { category: 'User Stats', tag: '{{response.data.user.suspended_count}}', description: 'Number of suspended players in lineup' },
+  { category: 'Game Info', tag: '{{response.data.game.name}}', description: 'Game display name' },
+  { category: 'Game Info', tag: '{{response.data.game.current_round}}', description: 'Current round number' },
+  { category: 'Game Info', tag: '{{response.data.game.total_rounds}}', description: 'Total number of rounds' },
+  { category: 'Game Info', tag: '{{response.data.game.round_state}}', description: 'Current state (CurrentOpen, Ended, etc.)' },
+  { category: 'Game Info', tag: '{{response.data.game.trade_deadline}}', description: 'Next trade deadline (ISO date)' },
+  { category: 'Game Info', tag: '{{response.data.game.days_until_deadline}}', description: 'Days until next deadline' },
+  { category: 'Alerts', tag: '{{response.data.alerts.injured_players}}', description: 'Array of injured player names' },
+  { category: 'Alerts', tag: '{{response.data.alerts.suspended_players}}', description: 'Array of suspended player names' },
+  { category: 'Alerts', tag: '{{response.data.alerts.top_performer.name}}', description: 'Best performing player in lineup' },
+  { category: 'Alerts', tag: '{{response.data.alerts.top_performer.trend}}', description: 'Trend value of top performer' },
+  { category: 'Alerts', tag: '{{response.data.alerts.worst_performer.name}}', description: 'Worst performing player in lineup' },
+  { category: 'Trending', tag: '{{response.data.trending.hot}}', description: 'Array of top 5 trending players (name, team, trend)' },
+  { category: 'Trending', tag: '{{response.data.trending.falling}}', description: 'Array of 5 falling players (name, team, trend)' },
+  { category: 'Lineup', tag: '{{response.data.lineup}}', description: 'Array of lineup players with name, team, trend, value, growth, is_injured, is_suspended' },
+]
+
 export default function GameDetailPage() {
   const params = useParams()
   const [game, setGame] = useState<GameWithDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [showTriggerForm, setShowTriggerForm] = useState(false)
+  const [copiedText, setCopiedText] = useState<string | null>(null)
+  const [showAllLogs, setShowAllLogs] = useState(false)
   const [triggerForm, setTriggerForm] = useState({
     trigger_type: 'deadline_reminder_24h',
     braze_campaign_id: '',
@@ -105,6 +139,16 @@ export default function GameDetailPage() {
     }
   }
 
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedText(label)
+      setTimeout(() => setCopiedText(null), 2000)
+    } catch (error) {
+      console.error('Failed to copy:', error)
+    }
+  }
+
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Never'
     return new Date(dateString).toLocaleString('sv-SE')
@@ -130,6 +174,22 @@ export default function GameDetailPage() {
   if (!game) {
     return <div>Game not found</div>
   }
+
+  // Generate the Connected Content URL and string
+  const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+  const connectedContentUrl = `${apiBaseUrl}/api/v1/users/{{$\{user_id}}}/games/${game.game_key}`
+  const connectedContentString = `{% connected_content ${connectedContentUrl} :headers {"x-api-key": "YOUR_API_KEY"} :save response %}`
+
+  // Get visible sync logs (2 or all)
+  const syncLogs = game.sync_logs || []
+  const visibleLogs = showAllLogs ? syncLogs : syncLogs.slice(0, 2)
+
+  // Group liquid tags by category
+  const tagsByCategory = liquidTags.reduce((acc, tag) => {
+    if (!acc[tag.category]) acc[tag.category] = []
+    acc[tag.category].push(tag)
+    return acc
+  }, {} as Record<string, typeof liquidTags>)
 
   return (
     <div>
@@ -216,6 +276,148 @@ export default function GameDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Braze Integration Section */}
+      <div className="bg-white rounded-xl border border-gray-200 mb-8">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center gap-2">
+            <Code className="w-5 h-5 text-gray-400" />
+            <h2 className="text-lg font-semibold text-gray-900">Braze Integration</h2>
+          </div>
+          <p className="text-sm text-gray-500 mt-1">
+            Use this Connected Content in your Braze campaigns to personalize emails with game data.
+          </p>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* API Endpoint */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              API Endpoint
+            </label>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 bg-gray-100 px-4 py-2 rounded-lg text-sm font-mono text-gray-800 overflow-x-auto">
+                {connectedContentUrl}
+              </code>
+              <button
+                onClick={() => copyToClipboard(connectedContentUrl, 'endpoint')}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+                title="Copy endpoint"
+              >
+                {copiedText === 'endpoint' ? (
+                  <Check className="w-5 h-5 text-green-500" />
+                ) : (
+                  <Copy className="w-5 h-5" />
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Replace <code className="bg-gray-100 px-1 rounded">{'{{$'}{'{user_id}}}'}</code> with your Braze user identifier attribute
+            </p>
+          </div>
+
+          {/* Connected Content String */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Connected Content String
+            </label>
+            <div className="flex items-start gap-2">
+              <code className="flex-1 bg-gray-900 text-green-400 px-4 py-3 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap">
+                {connectedContentString}
+              </code>
+              <button
+                onClick={() => copyToClipboard(connectedContentString, 'connected')}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg flex-shrink-0"
+                title="Copy Connected Content"
+              >
+                {copiedText === 'connected' ? (
+                  <Check className="w-5 h-5 text-green-500" />
+                ) : (
+                  <Copy className="w-5 h-5" />
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Paste this at the top of your email template. Replace <code className="bg-gray-100 px-1 rounded">YOUR_API_KEY</code> with your actual API key.
+            </p>
+          </div>
+
+          {/* Liquid Tags Table */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Available Liquid Tags
+            </label>
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-4 py-2 text-left font-medium text-gray-600">Category</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-600">Liquid Tag</th>
+                    <th className="px-4 py-2 text-left font-medium text-gray-600">Description</th>
+                    <th className="px-4 py-2 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {Object.entries(tagsByCategory).map(([category, tags]) =>
+                    tags.map((item, idx) => (
+                      <tr key={item.tag} className="hover:bg-gray-50">
+                        {idx === 0 && (
+                          <td
+                            className="px-4 py-2 font-medium text-gray-900 bg-gray-50 align-top"
+                            rowSpan={tags.length}
+                          >
+                            {category}
+                          </td>
+                        )}
+                        <td className="px-4 py-2">
+                          <code className="text-xs bg-gray-100 px-2 py-1 rounded text-red-600 font-mono">
+                            {item.tag}
+                          </code>
+                        </td>
+                        <td className="px-4 py-2 text-gray-600">{item.description}</td>
+                        <td className="px-4 py-2">
+                          <button
+                            onClick={() => copyToClipboard(item.tag, item.tag)}
+                            className="p-1 text-gray-400 hover:text-gray-600 rounded"
+                            title="Copy tag"
+                          >
+                            {copiedText === item.tag ? (
+                              <Check className="w-4 h-4 text-green-500" />
+                            ) : (
+                              <Copy className="w-4 h-4" />
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Example Usage */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Example Email Template
+            </label>
+            <pre className="bg-gray-900 text-green-400 px-4 py-3 rounded-lg text-xs font-mono overflow-x-auto">
+{`{% connected_content ${apiBaseUrl}/api/v1/users/{{$\{user_id}}}/games/${game.game_key} :headers {"x-api-key": "YOUR_API_KEY"} :save response %}
+
+{% if response.success %}
+  Hi! Your team "{{response.data.user.team_name}}" is ranked #{{response.data.user.rank}}!
+
+  Current round: {{response.data.game.current_round}} of {{response.data.game.total_rounds}}
+  Your score: {{response.data.user.score}} points
+
+  {% if response.data.alerts.injured_players.size > 0 %}
+    Warning: You have injured players: {{response.data.alerts.injured_players | join: ", "}}
+  {% endif %}
+{% endif %}`}
+            </pre>
+          </div>
+        </div>
+      </div>
 
       {/* Triggers */}
       <div className="bg-white rounded-xl border border-gray-200 mb-8">
@@ -322,18 +524,36 @@ export default function GameDetailPage() {
         </div>
       </div>
 
-      {/* Recent Sync Logs */}
+      {/* Recent Sync Logs - Collapsed by default */}
       <div className="bg-white rounded-xl border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900">Recent Sync Logs</h2>
+          {syncLogs.length > 2 && (
+            <button
+              onClick={() => setShowAllLogs(!showAllLogs)}
+              className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+            >
+              {showAllLogs ? (
+                <>
+                  <ChevronUp className="w-4 h-4" />
+                  Show less
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-4 h-4" />
+                  Show all ({syncLogs.length})
+                </>
+              )}
+            </button>
+          )}
         </div>
         <div className="divide-y divide-gray-200">
-          {(game.sync_logs || []).length === 0 ? (
+          {visibleLogs.length === 0 ? (
             <div className="p-6 text-center text-gray-500">
               No sync logs yet. Trigger a sync to see logs here.
             </div>
           ) : (
-            (game.sync_logs || []).map((log) => (
+            visibleLogs.map((log) => (
               <div key={log.id} className="p-4 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   {log.status === 'completed' ? (
