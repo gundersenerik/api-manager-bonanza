@@ -88,7 +88,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
       headers: {
         'x-api-key': `${swushApiKey?.substring(0, 8)}...${swushApiKey?.substring(swushApiKey.length - 4)}`,
         'Accept': 'application/json',
-        'User-Agent': 'SWUSH-Manager/1.0',
+        'User-Agent': 'Mozilla/5.0 (compatible; SWUSH-Manager/1.0)',
       },
     })
 
@@ -102,7 +102,7 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
         headers: {
           'x-api-key': swushApiKey!,
           'Accept': 'application/json',
-          'User-Agent': 'SWUSH-Manager/1.0',
+          'User-Agent': 'Mozilla/5.0 (compatible; SWUSH-Manager/1.0)',
         },
       })
 

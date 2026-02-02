@@ -53,7 +53,7 @@ export class SwushClient {
         headers: {
           'x-api-key': this.apiKey,
           'Accept': 'application/json',
-          'User-Agent': 'SWUSH-Manager/1.0',
+          'User-Agent': 'Mozilla/5.0 (compatible; SWUSH-Manager/1.0)',
         },
         signal: controller.signal,
       })
