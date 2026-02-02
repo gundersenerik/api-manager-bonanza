@@ -9,6 +9,8 @@ import { log } from '@/lib/logger'
 const DEFAULT_TIMEOUT_MS = 30000 // 30 seconds
 const RATE_LIMIT_DELAY_MS = 100 // Delay between paginated requests to avoid rate limiting
 const MAX_PAGE_SIZE = 10 // SWUSH API maximum page size
+const MAX_RETRIES = 3 // Number of retries for failed requests
+const RETRY_BASE_DELAY_MS = 1000 // Base delay for exponential backoff (1s, 2s, 4s)
 
 interface SwushClientConfig {
   baseUrl: string
@@ -117,6 +119,52 @@ export class SwushClient {
   }
 
   /**
+   * Make a request with retry logic and exponential backoff
+   * Retries on transient failures (5xx, timeouts, network errors)
+   */
+  private async requestWithRetry<T>(
+    endpoint: string,
+    maxRetries: number = MAX_RETRIES
+  ): Promise<SwushApiResponse<T>> {
+    let lastResponse: SwushApiResponse<T> | null = null
+
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+      const response = await this.request<T>(endpoint)
+
+      // Success - return immediately
+      if (response.data && !response.error) {
+        return response
+      }
+
+      lastResponse = response
+
+      // Don't retry on client errors (4xx) except 408 (timeout) and 429 (rate limit)
+      const isClientError = response.status >= 400 && response.status < 500
+      const isRetryableClientError = response.status === 408 || response.status === 429
+
+      if (isClientError && !isRetryableClientError) {
+        log.swush.warn(`[SWUSH] Non-retryable error ${response.status} on attempt ${attempt}`)
+        return response
+      }
+
+      // If we have more attempts, wait and retry
+      if (attempt <= maxRetries) {
+        const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1) // 1s, 2s, 4s
+        log.swush.warn(
+          `[SWUSH] Attempt ${attempt}/${maxRetries + 1} failed with status ${response.status}. ` +
+          `Retrying in ${delay}ms...`
+        )
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+
+    log.swush.error(
+      `[SWUSH] All ${maxRetries + 1} attempts failed for ${endpoint}`
+    )
+    return lastResponse!
+  }
+
+  /**
    * Verify API key is valid
    */
   async verifyApiKey(): Promise<boolean> {
@@ -143,7 +191,7 @@ export class SwushClient {
   }
 
   /**
-   * Get users for a game (paginated)
+   * Get users for a game (paginated) - with retry logic
    */
   async getUsers(
     subsiteKey: string,
@@ -154,7 +202,7 @@ export class SwushClient {
   ): Promise<SwushApiResponse<SwushUsersResponse>> {
     // SWUSH API has a maximum page size limit
     const actualPageSize = Math.min(pageSize, MAX_PAGE_SIZE)
-    return this.request<SwushUsersResponse>(
+    return this.requestWithRetry<SwushUsersResponse>(
       `/season/subsites/${subsiteKey}/games/${gameKey}/users?includeUserteams=${includeUserteams}&includeLineups=false&page=${page}&pageSize=${actualPageSize}`
     )
   }
