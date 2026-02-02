@@ -185,11 +185,14 @@ export default function GameDetailPage() {
   const visibleLogs = showAllLogs ? syncLogs : syncLogs.slice(0, 2)
 
   // Group liquid tags by category
-  const tagsByCategory = liquidTags.reduce((acc, tag) => {
-    if (!acc[tag.category]) acc[tag.category] = []
-    acc[tag.category].push(tag)
+  const tagsByCategory = liquidTags.reduce<Record<string, typeof liquidTags>>((acc, tag) => {
+    const category = tag.category
+    if (!acc[category]) {
+      acc[category] = []
+    }
+    acc[category]!.push(tag)
     return acc
-  }, {} as Record<string, typeof liquidTags>)
+  }, {})
 
   return (
     <div>
