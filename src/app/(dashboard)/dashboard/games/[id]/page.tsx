@@ -68,6 +68,8 @@ export default function GameDetailPage() {
   const [showTriggerForm, setShowTriggerForm] = useState(false)
   const [copiedText, setCopiedText] = useState<string | null>(null)
   const [showAllLogs, setShowAllLogs] = useState(false)
+  const [debugData, setDebugData] = useState<Record<string, unknown> | null>(null)
+  const [debugging, setDebugging] = useState(false)
   const [triggerForm, setTriggerForm] = useState({
     trigger_type: 'deadline_reminder_24h',
     braze_campaign_id: '',
@@ -116,6 +118,21 @@ export default function GameDetailPage() {
       setSyncError(error instanceof Error ? error.message : 'Network error - sync request failed')
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const handleDebug = async () => {
+    setDebugging(true)
+    setDebugData(null)
+    try {
+      const res = await fetch(`/api/admin/games/${params.id}/debug-sync`)
+      const data = await res.json()
+      setDebugData(data)
+    } catch (error) {
+      console.error('Debug failed:', error)
+      setDebugData({ error: error instanceof Error ? error.message : 'Debug request failed' })
+    } finally {
+      setDebugging(false)
     }
   }
 
@@ -221,18 +238,32 @@ export default function GameDetailPage() {
             <h1 className="text-2xl font-bold text-gray-900">{game.name}</h1>
             <p className="mt-1 text-gray-500">{game.game_key}</p>
           </div>
-          <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50"
-          >
-            {syncing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
-            Sync Now
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleDebug}
+              disabled={debugging}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg font-medium hover:bg-gray-700 disabled:opacity-50"
+            >
+              {debugging ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Code className="w-4 h-4" />
+              )}
+              Debug Sync
+            </button>
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50"
+            >
+              {syncing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              Sync Now
+            </button>
+          </div>
         </div>
 
         {/* Sync feedback */}
@@ -258,6 +289,24 @@ export default function GameDetailPage() {
                 </p>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Debug Output */}
+        {debugData && (
+          <div className="mt-4 p-4 bg-gray-900 rounded-lg overflow-auto max-h-96">
+            <div className="flex justify-between items-center mb-2">
+              <p className="font-medium text-gray-200">Debug Output</p>
+              <button
+                onClick={() => setDebugData(null)}
+                className="text-gray-400 hover:text-white text-sm"
+              >
+                Close
+              </button>
+            </div>
+            <pre className="text-xs text-green-400 whitespace-pre-wrap">
+              {JSON.stringify(debugData, null, 2)}
+            </pre>
           </div>
         )}
       </div>
