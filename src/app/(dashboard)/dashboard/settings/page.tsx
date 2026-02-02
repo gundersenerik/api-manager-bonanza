@@ -20,9 +20,9 @@ interface SettingsData {
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsData>({
     swush_api_key: '',
-    swush_api_base_url: 'https://season.swush.com/v1/partner',
+    swush_api_base_url: '',
     braze_api_key: '',
-    braze_rest_endpoint: 'https://rest.fra-02.braze.eu',
+    braze_rest_endpoint: '',
     default_sync_interval: 30,
   })
   const [loading, setLoading] = useState(true)

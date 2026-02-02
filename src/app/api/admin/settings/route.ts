@@ -13,9 +13,9 @@ export async function GET() {
   // Return masked versions for display
   const settings = {
     swush_api_key: process.env.SWUSH_API_KEY ? '••••••••' + process.env.SWUSH_API_KEY.slice(-4) : '',
-    swush_api_base_url: process.env.SWUSH_API_BASE_URL || 'https://season.swush.com/v1/partner',
+    swush_api_base_url: process.env.SWUSH_API_BASE_URL || '',
     braze_api_key: process.env.BRAZE_API_KEY ? '••••••••' + process.env.BRAZE_API_KEY.slice(-4) : '',
-    braze_rest_endpoint: process.env.BRAZE_REST_ENDPOINT || 'https://rest.fra-02.braze.eu',
+    braze_rest_endpoint: process.env.BRAZE_REST_ENDPOINT || '',
     default_sync_interval: parseInt(process.env.DEFAULT_SYNC_INTERVAL || '30'),
   }
 

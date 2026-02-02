@@ -12,10 +12,10 @@ export async function POST() {
 
   try {
     const apiKey = process.env.SWUSH_API_KEY
-    const baseUrl = process.env.SWUSH_API_BASE_URL || 'https://season.swush.com/v1/partner'
+    const baseUrl = process.env.SWUSH_API_BASE_URL
 
-    if (!apiKey) {
-      return errorResponse('SWUSH API key not configured', 400)
+    if (!apiKey || !baseUrl) {
+      return errorResponse('SWUSH API credentials not configured (SWUSH_API_KEY, SWUSH_API_BASE_URL)', 400)
     }
 
     const client = new SwushClient({ apiKey, baseUrl })
