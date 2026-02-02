@@ -63,6 +63,8 @@ export default function GameDetailPage() {
   const [game, setGame] = useState<GameWithDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
+  const [syncResult, setSyncResult] = useState<{ users: number; elements: number } | null>(null)
   const [showTriggerForm, setShowTriggerForm] = useState(false)
   const [copiedText, setCopiedText] = useState<string | null>(null)
   const [showAllLogs, setShowAllLogs] = useState(false)
@@ -93,16 +95,25 @@ export default function GameDetailPage() {
 
   const handleSync = async () => {
     setSyncing(true)
+    setSyncError(null)
+    setSyncResult(null)
     try {
       const res = await fetch(`/api/admin/games/${params.id}/sync`, {
         method: 'POST',
       })
       const data = await res.json()
       if (data.success) {
+        setSyncResult({
+          users: data.data?.users_synced ?? 0,
+          elements: data.data?.elements_synced ?? 0,
+        })
         await fetchGame()
+      } else {
+        setSyncError(data.error || 'Sync failed - check Vercel logs for details')
       }
     } catch (error) {
       console.error('Sync failed:', error)
+      setSyncError(error instanceof Error ? error.message : 'Network error - sync request failed')
     } finally {
       setSyncing(false)
     }
@@ -223,6 +234,32 @@ export default function GameDetailPage() {
             Sync Now
           </button>
         </div>
+
+        {/* Sync feedback */}
+        {syncError && (
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <XCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-medium text-red-800">Sync Failed</p>
+                <p className="text-sm text-red-600 mt-1">{syncError}</p>
+              </div>
+            </div>
+          </div>
+        )}
+        {syncResult && (
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <CheckCircle className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-medium text-green-800">Sync Completed</p>
+                <p className="text-sm text-green-600 mt-1">
+                  Synced {syncResult.elements} elements and {syncResult.users} users
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Stats Grid */}
