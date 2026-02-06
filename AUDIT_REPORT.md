@@ -141,9 +141,9 @@ The SWUSH Manager API is a full-stack Next.js 15 admin dashboard and REST API fo
 | 2 | HIGH | Code Quality | Set up GitHub Actions CI (lint + type-check + test + build) |
 | 3 | HIGH | Security | Replace in-memory rate limiting with Upstash Redis |
 | 4 | HIGH | UX | Add pagination, filtering, sorting to list endpoints |
-| 5 | HIGH | UI | Make sidebar responsive with mobile hamburger menu |
-| 6 | HIGH | Security | Add security headers via Next.js middleware |
-| 7 | MEDIUM | UX | Generate OpenAPI/Swagger from Zod schemas |
+| 5 | HIGH | Security | Add security headers via Next.js config |
+| 6 | MEDIUM | UX | Generate OpenAPI/Swagger from Zod schemas |
+| 7 | MEDIUM | UI | Make sidebar responsive with mobile hamburger menu (desktop-first app) |
 | 8 | MEDIUM | UI | Add ARIA labels, alt text, focus management |
 | 9 | MEDIUM | UI | Extract reusable components (Card, Table, Button) |
 | 10 | LOW | Code Quality | Add Prettier + husky pre-commit hooks |
