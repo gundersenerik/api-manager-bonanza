@@ -9,7 +9,6 @@ import {
   LayoutDashboard,
   Gamepad2,
   RefreshCw,
-  Key,
   Settings,
   LogOut,
   User,
@@ -19,7 +18,6 @@ const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Games', href: '/dashboard/games', icon: Gamepad2 },
   { name: 'Sync Logs', href: '/dashboard/sync-logs', icon: RefreshCw },
-  { name: 'API Keys', href: '/dashboard/api-keys', icon: Key },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings },
 ]
 

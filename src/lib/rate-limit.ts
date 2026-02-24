@@ -45,18 +45,9 @@ export interface RateLimitResult {
 }
 
 /**
- * Get a unique identifier for rate limiting
- * Uses API key if available, otherwise falls back to IP
+ * Get a unique identifier for rate limiting based on IP address
  */
 export function getRateLimitKey(request: NextRequest): string {
-  // Prefer API key for rate limiting (more accurate for API clients)
-  const apiKey = request.headers.get('x-api-key')
-  if (apiKey) {
-    // Use a hash prefix to avoid storing the full key
-    return `api:${apiKey.substring(0, 12)}`
-  }
-
-  // Fall back to IP address
   const forwarded = request.headers.get('x-forwarded-for')
   const ip = forwarded?.split(',')[0]?.trim() ||
              request.headers.get('x-real-ip') ||
@@ -128,7 +119,7 @@ export function rateLimitHeaders(result: RateLimitResult): HeadersInit {
  * Default rate limit configurations
  */
 export const RATE_LIMITS = {
-  // Public API: 100 requests per minute per API key
+  // Public API: 100 requests per minute per IP
   publicApi: { limit: 100, windowSeconds: 60 },
   // Admin API: 200 requests per minute
   adminApi: { limit: 200, windowSeconds: 60 },

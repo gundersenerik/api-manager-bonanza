@@ -205,8 +205,9 @@ export default function GameDetailPage() {
 
   // Generate the Connected Content URL and string
   const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+  const brazeToken = process.env.NEXT_PUBLIC_BRAZE_API_TOKEN || 'TOKEN_NOT_CONFIGURED'
   const connectedContentUrl = `${apiBaseUrl}/api/v1/users/{{$\{user_id}}}/games/${game.game_key}`
-  const connectedContentString = `{% connected_content ${connectedContentUrl} :headers {"x-api-key": "YOUR_API_KEY"} :save response %}`
+  const connectedContentString = `{% connected_content ${connectedContentUrl}?token=${brazeToken} :save response %}`
 
   // Get visible sync logs (2 or all)
   const syncLogs = game.sync_logs || []
@@ -427,7 +428,7 @@ export default function GameDetailPage() {
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Paste this at the top of your email template. Replace <code className="bg-gray-100 px-1 rounded">YOUR_API_KEY</code> with your actual API key.
+              Paste this at the top of your Braze email template. The API token is included automatically.
             </p>
           </div>
 
@@ -491,7 +492,7 @@ export default function GameDetailPage() {
               Example Email Template
             </label>
             <pre className="bg-gray-900 text-green-400 px-4 py-3 rounded-lg text-xs font-mono overflow-x-auto">
-{`{% connected_content ${apiBaseUrl}/api/v1/users/{{$\{user_id}}}/games/${game.game_key} :headers {"x-api-key": "YOUR_API_KEY"} :save response %}
+{`{% connected_content ${apiBaseUrl}/api/v1/users/{{$\{user_id}}}/games/${game.game_key}?token=${brazeToken} :save response %}
 
 {% if response.success %}
   Hi! Your team "{{response.data.user.team_name}}" is ranked #{{response.data.user.rank}}!

@@ -149,16 +149,6 @@ export interface UserGameStats {
   updated_at: string
 }
 
-export interface ApiKey {
-  id: string
-  name: string
-  key_hash: string
-  key_preview: string
-  is_active: boolean
-  last_used_at: string | null
-  created_at: string
-}
-
 export interface SyncLog {
   id: string
   game_id: string

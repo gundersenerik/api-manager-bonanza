@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { validateApiKey, errorResponse } from '@/lib/api-auth'
+import { errorResponse } from '@/lib/api-auth'
 import { checkRateLimit, getRateLimitKey, rateLimitHeaders, RATE_LIMITS } from '@/lib/rate-limit'
 import { log } from '@/lib/logger'
 import { BrazeUserResponse, Element } from '@/types'
 import { differenceInHours } from 'date-fns'
 import { z } from 'zod'
+import { timingSafeEqual } from 'crypto'
 
 // Validation schemas for URL parameters
 const paramsSchema = z.object({
@@ -18,6 +19,31 @@ interface RouteContext {
     externalId: string
     gameKey: string
   }>
+}
+
+/**
+ * Validate the static Braze API token from query params.
+ * Uses timing-safe comparison to prevent timing attacks.
+ */
+function validateBrazeToken(request: NextRequest): boolean {
+  const token = request.nextUrl.searchParams.get('token')
+  const expectedToken = process.env.BRAZE_API_TOKEN || process.env.NEXT_PUBLIC_BRAZE_API_TOKEN
+
+  if (!token || !expectedToken) {
+    return false
+  }
+
+  // Timing-safe comparison to prevent timing attacks
+  try {
+    const tokenBuffer = Buffer.from(token)
+    const expectedBuffer = Buffer.from(expectedToken)
+    if (tokenBuffer.length !== expectedBuffer.length) {
+      return false
+    }
+    return timingSafeEqual(tokenBuffer, expectedBuffer)
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -37,16 +63,15 @@ function normalizeExternalId(externalId: string): string {
 }
 
 /**
- * GET /api/v1/users/:externalId/games/:gameKey
+ * GET /api/v1/users/:externalId/games/:gameKey?token=BRAZE_API_TOKEN
  *
  * Braze Connected Content endpoint
  * Returns personalized fantasy game data for a user
  */
 export async function GET(request: NextRequest, { params }: RouteContext) {
-  // Validate API key FIRST (before rate limiting to prevent enumeration attacks)
-  const isValid = await validateApiKey(request)
-  if (!isValid) {
-    return errorResponse('Invalid or missing API key', 401)
+  // Validate static token FIRST (before rate limiting to prevent enumeration attacks)
+  if (!validateBrazeToken(request)) {
+    return errorResponse('Invalid or missing token', 401)
   }
 
   // Check rate limit after authentication
