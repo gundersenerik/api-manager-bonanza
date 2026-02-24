@@ -1,14 +1,20 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   RefreshCw,
-  CheckCircle,
-  XCircle,
-  Clock,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react'
+import { Card } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
+import { SyncStatusDot } from '@/components/ui/StatusDot'
+import { CodeBlock } from '@/components/ui/CodeBlock'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { PageHeader } from '@/components/layout/PageHeader'
+import { LoadingScreen } from '@/components/ui/LoadingDots'
 
 interface SyncLog {
   id: string
@@ -24,6 +30,12 @@ interface SyncLog {
     name: string
     game_key: string
   }
+}
+
+const triggerColors: Record<string, 'electric' | 'ocean' | 'solar' | 'ink'> = {
+  manual: 'electric',
+  scheduled: 'ocean',
+  webhook: 'solar',
 }
 
 export default function SyncLogsPage() {
@@ -56,169 +68,178 @@ export default function SyncLogsPage() {
 
   const formatDuration = (start: string, end: string | null) => {
     if (!end) return 'In progress...'
-    const startTime = new Date(start).getTime()
-    const endTime = new Date(end).getTime()
-    const durationMs = endTime - startTime
+    const durationMs = new Date(end).getTime() - new Date(start).getTime()
     if (durationMs < 1000) return `${durationMs}ms`
     if (durationMs < 60000) return `${(durationMs / 1000).toFixed(1)}s`
     return `${(durationMs / 60000).toFixed(1)}m`
   }
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="w-5 h-5 text-green-500" />
-      case 'failed':
-        return <XCircle className="w-5 h-5 text-red-500" />
-      case 'running':
-        return <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
-      default:
-        return <Clock className="w-5 h-5 text-gray-400" />
-    }
-  }
-
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      completed: 'bg-green-100 text-green-700',
-      failed: 'bg-red-100 text-red-700',
-      running: 'bg-blue-100 text-blue-700',
-    }
-    return styles[status as keyof typeof styles] || 'bg-gray-100 text-gray-700'
-  }
-
-  const getTriggerBadge = (trigger: string) => {
-    const styles: Record<string, string> = {
-      manual: 'bg-purple-100 text-purple-700',
-      scheduled: 'bg-blue-100 text-blue-700',
-      webhook: 'bg-orange-100 text-orange-700',
-    }
-    return styles[trigger] || 'bg-gray-100 text-gray-700'
+  const getDurationColor = (start: string, end: string | null) => {
+    if (!end) return 'text-ocean'
+    const durationMs = new Date(end).getTime() - new Date(start).getTime()
+    if (durationMs < 2000) return 'text-mint'
+    if (durationMs < 30000) return 'text-ink-300'
+    return 'text-solar'
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-gray-400" />
-      </div>
-    )
+    return <LoadingScreen message="Loading sync logs..." />
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Sync Logs</h1>
-          <p className="mt-1 text-gray-500">
-            View synchronization history across all games
-          </p>
-        </div>
-        <button
-          onClick={() => { setLoading(true); fetchLogs() }}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </button>
-      </div>
+      <PageHeader
+        title="Sync Logs"
+        description="View synchronization history across all games"
+        actions={
+          <Button
+            variant="ghost"
+            icon={RefreshCw}
+            size="sm"
+            onClick={() => { setLoading(true); fetchLogs() }}
+          >
+            Refresh
+          </Button>
+        }
+      />
 
       {logs.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <RefreshCw className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No sync logs yet</h3>
-          <p className="text-gray-500">
-            Sync logs will appear here when games are synchronized
-          </p>
-        </div>
+        <Card>
+          <div className="p-8">
+            <EmptyState
+              icon={RefreshCw}
+              title="No sync logs yet"
+              description="Sync logs will appear here when games are synchronized"
+            />
+          </div>
+        </Card>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Game
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Trigger
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Synced
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Duration
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Started
-                </th>
-                <th className="px-6 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {logs.map((log) => (
-                <>
-                  <tr key={log.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(log.status)}
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusBadge(log.status)}`}>
-                          {log.status}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-gray-900">
-                        {log.game?.name || 'Unknown Game'}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {log.game?.game_key}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getTriggerBadge(log.trigger_type)}`}>
-                        {log.trigger_type}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {log.elements_synced} elements, {log.users_synced} users
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {formatDuration(log.started_at, log.completed_at)}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {formatDate(log.started_at)}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {log.error_message && (
-                        <button
-                          onClick={() => setExpandedLog(expandedLog === log.id ? null : log.id)}
-                          className="text-gray-400 hover:text-gray-600"
-                        >
-                          {expandedLog === log.id ? (
-                            <ChevronUp className="w-5 h-5" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5" />
-                          )}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                  {expandedLog === log.id && log.error_message && (
-                    <tr key={`${log.id}-error`}>
-                      <td colSpan={7} className="px-6 py-4 bg-red-50">
-                        <div className="text-sm">
-                          <span className="font-medium text-red-800">Error: </span>
-                          <span className="text-red-700">{log.error_message}</span>
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-ink-600/30 bg-ink-800/80">
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Game
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Trigger
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Synced
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Duration
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Started
+                  </th>
+                  <th className="px-6 py-3.5 w-10"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ink-600/20">
+                {logs.map((log, index) => (
+                  <motion.tr
+                    key={log.id}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.03, duration: 0.3 }}
+                  >
+                    <td className="px-6 py-4" colSpan={7}>
+                      <div className={`${log.status === 'failed' ? 'bg-punch/5 -mx-6 -my-4 px-6 py-4' : ''}`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-6 flex-1 min-w-0">
+                            {/* Status */}
+                            <div className="flex items-center gap-2 w-28 flex-shrink-0">
+                              <SyncStatusDot status={log.status as 'completed' | 'failed' | 'running'} />
+                              <Badge color={
+                                log.status === 'completed' ? 'mint'
+                                : log.status === 'failed' ? 'punch'
+                                : 'ocean'
+                              }>
+                                {log.status}
+                              </Badge>
+                            </div>
+
+                            {/* Game */}
+                            <div className="min-w-0 w-48 flex-shrink-0">
+                              <div className="font-medium text-ink-50 truncate">
+                                {log.game?.name || 'Unknown Game'}
+                              </div>
+                              <div className="text-xs text-ink-500 font-mono truncate">
+                                {log.game?.game_key}
+                              </div>
+                            </div>
+
+                            {/* Trigger */}
+                            <div className="w-24 flex-shrink-0">
+                              <Badge color={triggerColors[log.trigger_type] || 'ink'}>
+                                {log.trigger_type}
+                              </Badge>
+                            </div>
+
+                            {/* Synced */}
+                            <div className="text-sm text-ink-200 w-40 flex-shrink-0">
+                              {log.elements_synced} elements, {log.users_synced} users
+                            </div>
+
+                            {/* Duration */}
+                            <div className={`text-sm font-mono w-20 flex-shrink-0 ${getDurationColor(log.started_at, log.completed_at)}`}>
+                              {formatDuration(log.started_at, log.completed_at)}
+                            </div>
+
+                            {/* Started */}
+                            <div className="text-sm text-ink-400 flex-shrink-0">
+                              {formatDate(log.started_at)}
+                            </div>
+                          </div>
+
+                          {/* Expand */}
+                          <div className="ml-4 flex-shrink-0">
+                            {log.error_message && (
+                              <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => setExpandedLog(expandedLog === log.id ? null : log.id)}
+                                className="p-1 text-ink-500 hover:text-ink-200 transition-colors"
+                              >
+                                {expandedLog === log.id ? (
+                                  <ChevronUp className="w-5 h-5" />
+                                ) : (
+                                  <ChevronDown className="w-5 h-5" />
+                                )}
+                              </motion.button>
+                            )}
+                          </div>
                         </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
-              ))}
-            </tbody>
-          </table>
-        </div>
+
+                        {/* Error expansion */}
+                        <AnimatePresence>
+                          {expandedLog === log.id && log.error_message && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="mt-3">
+                                <CodeBlock code={log.error_message} showCopy={false} />
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
     </div>
   )

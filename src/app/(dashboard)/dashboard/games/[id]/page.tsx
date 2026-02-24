@@ -3,25 +3,37 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowLeft,
   RefreshCw,
   Clock,
   CheckCircle,
   XCircle,
-  Loader2,
   Bell,
   Plus,
   Trash2,
-  Copy,
-  Check,
   Code,
   ChevronDown,
   ChevronUp,
+  Users,
+  Trophy,
+  Layers,
 } from 'lucide-react'
 import { Game, SyncLog, GameTrigger } from '@/types'
+import { Card } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
+import { StatusDot, SyncStatusDot } from '@/components/ui/StatusDot'
+import { CodeBlock, InlineCode } from '@/components/ui/CodeBlock'
+import { CopyButton } from '@/components/ui/CopyButton'
+import { Input, SelectInput } from '@/components/ui/Input'
+import { LoadingScreen } from '@/components/ui/LoadingDots'
+import { SyncButton } from '@/components/game/SyncButton'
+import { SyncCelebration } from '@/components/game/SyncCelebration'
 
-// Extended Game type with additional API response data
+type SyncState = 'idle' | 'syncing' | 'success' | 'error'
+
 interface GameWithDetails extends Game {
   stats?: {
     user_count: number
@@ -31,7 +43,6 @@ interface GameWithDetails extends Game {
   triggers?: GameTrigger[]
 }
 
-// Liquid tag documentation
 const liquidTags = [
   { category: 'User Stats', tag: '{{response.data.user.team_name}}', description: 'User\'s team name' },
   { category: 'User Stats', tag: '{{response.data.user.rank}}', description: 'Current overall rank' },
@@ -62,11 +73,10 @@ export default function GameDetailPage() {
   const params = useParams()
   const [game, setGame] = useState<GameWithDetails | null>(null)
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
-  const [syncError, setSyncError] = useState<string | null>(null)
+  const [syncState, setSyncState] = useState<SyncState>('idle')
   const [syncResult, setSyncResult] = useState<{ users: number; elements: number } | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
   const [showTriggerForm, setShowTriggerForm] = useState(false)
-  const [copiedText, setCopiedText] = useState<string | null>(null)
   const [showAllLogs, setShowAllLogs] = useState(false)
   const [debugData, setDebugData] = useState<Record<string, unknown> | null>(null)
   const [debugging, setDebugging] = useState(false)
@@ -96,9 +106,9 @@ export default function GameDetailPage() {
   }, [params.id, fetchGame])
 
   const handleSync = async () => {
-    setSyncing(true)
-    setSyncError(null)
+    setSyncState('syncing')
     setSyncResult(null)
+    setSyncError(null)
     try {
       const res = await fetch(`/api/admin/games/${params.id}/sync`, {
         method: 'POST',
@@ -109,15 +119,19 @@ export default function GameDetailPage() {
           users: data.data?.users_synced ?? 0,
           elements: data.data?.elements_synced ?? 0,
         })
+        setSyncState('success')
         await fetchGame()
+        setTimeout(() => setSyncState('idle'), 3000)
       } else {
         setSyncError(data.error || 'Sync failed - check Vercel logs for details')
+        setSyncState('error')
+        setTimeout(() => setSyncState('idle'), 3000)
       }
     } catch (error) {
       console.error('Sync failed:', error)
       setSyncError(error instanceof Error ? error.message : 'Network error - sync request failed')
-    } finally {
-      setSyncing(false)
+      setSyncState('error')
+      setTimeout(() => setSyncState('idle'), 3000)
     }
   }
 
@@ -167,16 +181,6 @@ export default function GameDetailPage() {
     }
   }
 
-  const copyToClipboard = async (text: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopiedText(label)
-      setTimeout(() => setCopiedText(null), 2000)
-    } catch (error) {
-      console.error('Failed to copy:', error)
-    }
-  }
-
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Never'
     return new Date(dateString).toLocaleString('sv-SE')
@@ -192,28 +196,25 @@ export default function GameDetailPage() {
   }
 
   if (loading) {
+    return <LoadingScreen message="Loading game..." />
+  }
+
+  if (!game) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-gray-400" />
+        <p className="text-ink-400">Game not found</p>
       </div>
     )
   }
 
-  if (!game) {
-    return <div>Game not found</div>
-  }
-
-  // Generate the Connected Content URL and string
   const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : ''
   const brazeToken = process.env.NEXT_PUBLIC_BRAZE_API_TOKEN || 'TOKEN_NOT_CONFIGURED'
   const connectedContentUrl = `${apiBaseUrl}/api/v1/users/{{$\{user_id}}}/games/${game.game_key}`
   const connectedContentString = `{% connected_content ${connectedContentUrl}?token=${brazeToken} :save response %}`
 
-  // Get visible sync logs (2 or all)
   const syncLogs = game.sync_logs || []
-  const visibleLogs = showAllLogs ? syncLogs : syncLogs.slice(0, 2)
+  const visibleLogs = showAllLogs ? syncLogs : syncLogs.slice(0, 3)
 
-  // Group liquid tags by category
   const tagsByCategory = liquidTags.reduce<Record<string, typeof liquidTags>>((acc, tag) => {
     const category = tag.category
     if (!acc[category]) {
@@ -223,276 +224,7 @@ export default function GameDetailPage() {
     return acc
   }, {})
 
-  return (
-    <div>
-      <div className="mb-8">
-        <Link
-          href="/dashboard/games"
-          className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700 mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Games
-        </Link>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{game.name}</h1>
-            <p className="mt-1 text-gray-500">{game.game_key}</p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={handleDebug}
-              disabled={debugging}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg font-medium hover:bg-gray-700 disabled:opacity-50"
-            >
-              {debugging ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Code className="w-4 h-4" />
-              )}
-              Debug Sync
-            </button>
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50"
-            >
-              {syncing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-              Sync Now
-            </button>
-          </div>
-        </div>
-
-        {/* Sync feedback */}
-        {syncError && (
-          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-start gap-2">
-              <XCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium text-red-800">Sync Failed</p>
-                <p className="text-sm text-red-600 mt-1">{syncError}</p>
-              </div>
-            </div>
-          </div>
-        )}
-        {syncResult && (
-          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex items-start gap-2">
-              <CheckCircle className="w-5 h-5 text-green-500 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium text-green-800">Sync Completed</p>
-                <p className="text-sm text-green-600 mt-1">
-                  Synced {syncResult.elements} elements and {syncResult.users} users
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Debug Output */}
-        {debugData && (
-          <div className="mt-4 p-4 bg-gray-900 rounded-lg overflow-auto max-h-96">
-            <div className="flex justify-between items-center mb-2">
-              <p className="font-medium text-gray-200">Debug Output</p>
-              <button
-                onClick={() => setDebugData(null)}
-                className="text-gray-400 hover:text-white text-sm"
-              >
-                Close
-              </button>
-            </div>
-            <pre className="text-xs text-green-400 whitespace-pre-wrap">
-              {JSON.stringify(debugData, null, 2)}
-            </pre>
-          </div>
-        )}
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <div className="text-sm text-gray-500 mb-1">Status</div>
-          <div className="flex items-center gap-2">
-            {game.is_active ? (
-              <>
-                <CheckCircle className="w-5 h-5 text-green-500" />
-                <span className="font-medium text-green-700">Active</span>
-              </>
-            ) : (
-              <>
-                <XCircle className="w-5 h-5 text-gray-400" />
-                <span className="font-medium text-gray-500">Inactive</span>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <div className="text-sm text-gray-500 mb-1">Round</div>
-          <div className="text-xl font-bold text-gray-900">
-            {game.current_round} / {game.total_rounds || '?'}
-          </div>
-          <div className="text-sm text-gray-500">{game.round_state}</div>
-        </div>
-
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <div className="text-sm text-gray-500 mb-1">Users</div>
-          <div className="text-xl font-bold text-gray-900">
-            {(game.stats?.user_count || game.users_total || 0).toLocaleString()}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <div className="text-sm text-gray-500 mb-1">Elements</div>
-          <div className="text-xl font-bold text-gray-900">
-            {(game.stats?.element_count || 0).toLocaleString()}
-          </div>
-        </div>
-      </div>
-
-      {/* Deadline Info */}
-      {game.next_trade_deadline && (
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-6 mb-8">
-          <div className="flex items-center gap-3">
-            <Clock className="w-6 h-6 text-orange-500" />
-            <div>
-              <div className="font-medium text-orange-800">Next Trade Deadline</div>
-              <div className="text-orange-600">{formatDate(game.next_trade_deadline)}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Braze Integration Section */}
-      <div className="bg-white rounded-xl border border-gray-200 mb-8">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <Code className="w-5 h-5 text-gray-400" />
-            <h2 className="text-lg font-semibold text-gray-900">Braze Integration</h2>
-          </div>
-          <p className="text-sm text-gray-500 mt-1">
-            Use this Connected Content in your Braze campaigns to personalize emails with game data.
-          </p>
-        </div>
-
-        <div className="p-6 space-y-6">
-          {/* API Endpoint */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              API Endpoint
-            </label>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 bg-gray-100 px-4 py-2 rounded-lg text-sm font-mono text-gray-800 overflow-x-auto">
-                {connectedContentUrl}
-              </code>
-              <button
-                onClick={() => copyToClipboard(connectedContentUrl, 'endpoint')}
-                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
-                title="Copy endpoint"
-              >
-                {copiedText === 'endpoint' ? (
-                  <Check className="w-5 h-5 text-green-500" />
-                ) : (
-                  <Copy className="w-5 h-5" />
-                )}
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Replace <code className="bg-gray-100 px-1 rounded">{'{{$'}{'{user_id}}}'}</code> with your Braze user identifier attribute
-            </p>
-          </div>
-
-          {/* Connected Content String */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Connected Content String
-            </label>
-            <div className="flex items-start gap-2">
-              <code className="flex-1 bg-gray-900 text-green-400 px-4 py-3 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap">
-                {connectedContentString}
-              </code>
-              <button
-                onClick={() => copyToClipboard(connectedContentString, 'connected')}
-                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg flex-shrink-0"
-                title="Copy Connected Content"
-              >
-                {copiedText === 'connected' ? (
-                  <Check className="w-5 h-5 text-green-500" />
-                ) : (
-                  <Copy className="w-5 h-5" />
-                )}
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Paste this at the top of your Braze email template. The API token is included automatically.
-            </p>
-          </div>
-
-          {/* Liquid Tags Table */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Available Liquid Tags
-            </label>
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-4 py-2 text-left font-medium text-gray-600">Category</th>
-                    <th className="px-4 py-2 text-left font-medium text-gray-600">Liquid Tag</th>
-                    <th className="px-4 py-2 text-left font-medium text-gray-600">Description</th>
-                    <th className="px-4 py-2 w-10"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {Object.entries(tagsByCategory).map(([category, tags]) =>
-                    tags.map((item, idx) => (
-                      <tr key={item.tag} className="hover:bg-gray-50">
-                        {idx === 0 && (
-                          <td
-                            className="px-4 py-2 font-medium text-gray-900 bg-gray-50 align-top"
-                            rowSpan={tags.length}
-                          >
-                            {category}
-                          </td>
-                        )}
-                        <td className="px-4 py-2">
-                          <code className="text-xs bg-gray-100 px-2 py-1 rounded text-red-600 font-mono">
-                            {item.tag}
-                          </code>
-                        </td>
-                        <td className="px-4 py-2 text-gray-600">{item.description}</td>
-                        <td className="px-4 py-2">
-                          <button
-                            onClick={() => copyToClipboard(item.tag, item.tag)}
-                            className="p-1 text-gray-400 hover:text-gray-600 rounded"
-                            title="Copy tag"
-                          >
-                            {copiedText === item.tag ? (
-                              <Check className="w-4 h-4 text-green-500" />
-                            ) : (
-                              <Copy className="w-4 h-4" />
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Example Usage */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Example Email Template
-            </label>
-            <pre className="bg-gray-900 text-green-400 px-4 py-3 rounded-lg text-xs font-mono overflow-x-auto">
-{`{% connected_content ${apiBaseUrl}/api/v1/users/{{$\{user_id}}}/games/${game.game_key}?token=${brazeToken} :save response %}
+  const exampleTemplate = `{% connected_content ${apiBaseUrl}/api/v1/users/{{$\{user_id}}}/games/${game.game_key}?token=${brazeToken} :save response %}
 
 {% if response.success %}
   Hi! Your team "{{response.data.user.team_name}}" is ranked #{{response.data.user.rank}}!
@@ -503,125 +235,406 @@ export default function GameDetailPage() {
   {% if response.data.alerts.injured_players.size > 0 %}
     Warning: You have injured players: {{response.data.alerts.injured_players | join: ", "}}
   {% endif %}
-{% endif %}`}
-            </pre>
+{% endif %}`
+
+  return (
+    <div>
+      <SyncCelebration trigger={syncState === 'success'} />
+
+      {/* Header */}
+      <div className="mb-8">
+        <Link
+          href="/dashboard/games"
+          className="inline-flex items-center gap-2 text-ink-400 hover:text-ink-200 mb-4 transition-colors group"
+        >
+          <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+          Back to Games
+        </Link>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-heading font-bold text-ink-50">{game.name}</h1>
+            <div className="mt-1 flex items-center gap-3">
+              <InlineCode>{game.game_key}</InlineCode>
+              <StatusDot active={game.is_active} />
+              <span className={`text-sm ${game.is_active ? 'text-mint' : 'text-ink-500'}`}>
+                {game.is_active ? 'Active' : 'Inactive'}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              icon={Code}
+              onClick={handleDebug}
+              disabled={debugging}
+              size="sm"
+            >
+              {debugging ? 'Debugging...' : 'Debug Sync'}
+            </Button>
+            <SyncButton state={syncState} onClick={handleSync} />
           </div>
         </div>
+
+        {/* Sync feedback */}
+        <AnimatePresence>
+          {syncState === 'error' && syncError && (
+            <motion.div
+              initial={{ opacity: 0, y: -8, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: 'auto' }}
+              exit={{ opacity: 0, y: -8, height: 0 }}
+              className="mt-4"
+            >
+              <div className="p-4 bg-punch/10 border border-punch/20 rounded-xl flex items-start gap-3">
+                <XCircle className="w-5 h-5 text-punch mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-punch">Sync Failed</p>
+                  <p className="text-sm text-punch/70 mt-1">{syncError}</p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+          {syncState === 'success' && syncResult && (
+            <motion.div
+              initial={{ opacity: 0, y: -8, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: 'auto' }}
+              exit={{ opacity: 0, y: -8, height: 0 }}
+              className="mt-4"
+            >
+              <div className="p-4 bg-mint/10 border border-mint/20 rounded-xl flex items-start gap-3">
+                <CheckCircle className="w-5 h-5 text-mint mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium text-mint">Sync Completed</p>
+                  <p className="text-sm text-mint/70 mt-1">
+                    Synced {syncResult.elements} elements and {syncResult.users} users
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Debug Output */}
+        <AnimatePresence>
+          {debugData && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-4"
+            >
+              <Card className="overflow-hidden">
+                <div className="p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-sm font-medium text-ink-200">Debug Output</span>
+                    <button
+                      onClick={() => setDebugData(null)}
+                      className="text-ink-400 hover:text-ink-200 text-sm transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <CodeBlock code={JSON.stringify(debugData, null, 2)} />
+                </div>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* Triggers */}
-      <div className="bg-white rounded-xl border border-gray-200 mb-8">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Bell className="w-5 h-5 text-gray-400" />
-            <h2 className="text-lg font-semibold text-gray-900">Braze Triggers</h2>
-          </div>
-          <button
-            onClick={() => setShowTriggerForm(!showTriggerForm)}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        {[
+          {
+            label: 'Status',
+            value: game.is_active ? 'Active' : 'Inactive',
+            icon: game.is_active ? CheckCircle : XCircle,
+            color: game.is_active ? 'text-mint' : 'text-ink-500',
+            iconBg: game.is_active ? 'bg-mint/15' : 'bg-ink-700/50',
+            iconColor: game.is_active ? 'text-mint' : 'text-ink-500',
+          },
+          {
+            label: 'Round',
+            value: `${game.current_round} / ${game.total_rounds || '?'}`,
+            sub: game.round_state,
+            icon: Trophy,
+            color: 'text-ink-50',
+            iconBg: 'bg-electric/15',
+            iconColor: 'text-electric',
+          },
+          {
+            label: 'Users',
+            value: (game.stats?.user_count || game.users_total || 0).toLocaleString(),
+            icon: Users,
+            color: 'text-ink-50',
+            iconBg: 'bg-ocean/15',
+            iconColor: 'text-ocean',
+          },
+          {
+            label: 'Elements',
+            value: (game.stats?.element_count || 0).toLocaleString(),
+            icon: Layers,
+            color: 'text-ink-50',
+            iconBg: 'bg-solar/15',
+            iconColor: 'text-solar',
+          },
+        ].map((stat, i) => (
+          <motion.div
+            key={stat.label}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
           >
-            <Plus className="w-4 h-4" />
-            Add Trigger
-          </button>
+            <Card className="p-5">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-sm text-ink-400 mb-1">{stat.label}</p>
+                  <p className={`text-xl font-heading font-bold ${stat.color}`}>{stat.value}</p>
+                  {stat.sub && <p className="text-xs text-ink-500 mt-0.5">{stat.sub}</p>}
+                </div>
+                <div className={`p-2 rounded-lg ${stat.iconBg}`}>
+                  <stat.icon className={`w-5 h-5 ${stat.iconColor}`} />
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Deadline Banner */}
+      {game.next_trade_deadline && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <div className="bg-gradient-to-r from-solar/15 to-punch/10 border border-solar/20 rounded-xl p-5">
+            <div className="flex items-center gap-3">
+              <motion.div
+                animate={{ scale: [1, 1.15, 1] }}
+                transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                <Clock className="w-6 h-6 text-solar" />
+              </motion.div>
+              <div>
+                <div className="font-medium text-solar">Next Trade Deadline</div>
+                <div className="text-solar/70">{formatDate(game.next_trade_deadline)}</div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Braze Integration Section */}
+      <Card className="mb-8 overflow-hidden">
+        <div className="px-6 py-4 border-b border-ink-600/20">
+          <div className="flex items-center gap-2">
+            <Code className="w-5 h-5 text-ocean" />
+            <h2 className="text-lg font-heading font-semibold text-ink-50">Braze Integration</h2>
+          </div>
+          <p className="text-sm text-ink-400 mt-1">
+            Use Connected Content in your Braze campaigns to personalize emails with game data.
+          </p>
         </div>
 
-        {showTriggerForm && (
-          <form onSubmit={handleAddTrigger} className="p-6 border-b border-gray-200 bg-gray-50">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Trigger Type
-                </label>
-                <select
-                  value={triggerForm.trigger_type}
-                  onChange={(e) => setTriggerForm({ ...triggerForm, trigger_type: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="deadline_reminder_24h">24h Deadline Reminder</option>
-                  <option value="round_started">Round Started</option>
-                  <option value="round_ended">Round Ended</option>
-                </select>
+        <div className="p-6 space-y-6">
+          {/* API Endpoint */}
+          <div>
+            <label className="block text-sm font-medium text-ink-200 mb-2">
+              API Endpoint
+            </label>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 bg-ink-700/30 px-4 py-2.5 rounded-xl ring-1 ring-ink-600/30 overflow-x-auto">
+                <code className="text-sm font-mono text-ocean-300">{connectedContentUrl}</code>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Braze Campaign ID
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="campaign_id_here"
-                  value={triggerForm.braze_campaign_id}
-                  onChange={(e) => setTriggerForm({ ...triggerForm, braze_campaign_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                />
-              </div>
+              <CopyButton text={connectedContentUrl} />
             </div>
-            <div className="mt-4 flex gap-2">
-              <button
-                type="submit"
-                className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700"
-              >
-                Add Trigger
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowTriggerForm(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
+            <p className="text-xs text-ink-500 mt-1.5">
+              Replace <InlineCode>{'{{$'}{'{user_id}}}'}</InlineCode> with your Braze user identifier attribute
+            </p>
+          </div>
 
-        <div className="divide-y divide-gray-200">
+          {/* Connected Content String */}
+          <div>
+            <label className="block text-sm font-medium text-ink-200 mb-2">
+              Connected Content String
+            </label>
+            <CodeBlock code={connectedContentString} />
+            <p className="text-xs text-ink-500 mt-1.5">
+              Paste this at the top of your Braze email template. The API token is included automatically.
+            </p>
+          </div>
+
+          {/* Liquid Tags Table */}
+          <div>
+            <label className="block text-sm font-medium text-ink-200 mb-2">
+              Available Liquid Tags
+            </label>
+            <div className="rounded-xl ring-1 ring-ink-600/30 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-ink-800/80 border-b border-ink-600/30">
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">Category</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">Liquid Tag</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">Description</th>
+                    <th className="px-4 py-2.5 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-ink-600/20">
+                  {Object.entries(tagsByCategory).map(([category, tags]) =>
+                    tags.map((item, idx) => (
+                      <tr key={item.tag} className="hover:bg-ink-700/20 transition-colors">
+                        {idx === 0 && (
+                          <td
+                            className="px-4 py-2 font-medium text-ink-200 bg-ink-800/40 align-top"
+                            rowSpan={tags.length}
+                          >
+                            {category}
+                          </td>
+                        )}
+                        <td className="px-4 py-2">
+                          <InlineCode>{item.tag}</InlineCode>
+                        </td>
+                        <td className="px-4 py-2 text-ink-400">{item.description}</td>
+                        <td className="px-4 py-2">
+                          <CopyButton text={item.tag} size="sm" />
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Example Template */}
+          <div>
+            <label className="block text-sm font-medium text-ink-200 mb-2">
+              Example Email Template
+            </label>
+            <CodeBlock code={exampleTemplate} />
+          </div>
+        </div>
+      </Card>
+
+      {/* Triggers */}
+      <Card className="mb-8 overflow-hidden">
+        <div className="px-6 py-4 border-b border-ink-600/20 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Bell className="w-5 h-5 text-solar" />
+            <h2 className="text-lg font-heading font-semibold text-ink-50">Braze Triggers</h2>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={Plus}
+            onClick={() => setShowTriggerForm(!showTriggerForm)}
+          >
+            Add Trigger
+          </Button>
+        </div>
+
+        <AnimatePresence>
+          {showTriggerForm && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="overflow-hidden"
+            >
+              <form onSubmit={handleAddTrigger} className="p-6 border-b border-ink-600/20 bg-ink-800/40">
+                <div className="grid grid-cols-2 gap-4">
+                  <SelectInput
+                    label="Trigger Type"
+                    value={triggerForm.trigger_type}
+                    onChange={(e) => setTriggerForm({ ...triggerForm, trigger_type: e.target.value })}
+                  >
+                    <option value="deadline_reminder_24h">24h Deadline Reminder</option>
+                    <option value="round_started">Round Started</option>
+                    <option value="round_ended">Round Ended</option>
+                  </SelectInput>
+                  <Input
+                    label="Braze Campaign ID"
+                    required
+                    placeholder="campaign_id_here"
+                    value={triggerForm.braze_campaign_id}
+                    onChange={(e) => setTriggerForm({ ...triggerForm, braze_campaign_id: e.target.value })}
+                  />
+                </div>
+                <div className="mt-4 flex gap-2">
+                  <Button type="submit" size="sm">Add Trigger</Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowTriggerForm(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="divide-y divide-ink-600/20">
           {(game.triggers || []).length === 0 ? (
-            <div className="p-6 text-center text-gray-500">
+            <div className="p-6 text-center text-ink-500">
               No triggers configured. Add a trigger to automate Braze campaigns.
             </div>
           ) : (
-            (game.triggers || []).map((trigger) => (
-              <div key={trigger.id} className="p-6 flex items-center justify-between">
+            (game.triggers || []).map((trigger, index) => (
+              <motion.div
+                key={trigger.id}
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className="p-5 flex items-center justify-between hover:bg-ink-700/10 transition-colors"
+              >
                 <div>
-                  <div className="font-medium text-gray-900">
+                  <div className="font-medium text-ink-50">
                     {getTriggerTypeName(trigger.trigger_type)}
                   </div>
-                  <div className="text-sm text-gray-500">
-                    Campaign: {trigger.braze_campaign_id}
+                  <div className="text-sm text-ink-400 font-mono">
+                    {trigger.braze_campaign_id}
                   </div>
                   {trigger.last_triggered_at && (
-                    <div className="text-xs text-gray-400 mt-1">
+                    <div className="text-xs text-ink-500 mt-1">
                       Last triggered: {formatDate(trigger.last_triggered_at)} (Round {trigger.last_triggered_round})
                     </div>
                   )}
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className={`px-2 py-1 text-xs rounded-full ${
-                    trigger.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                  }`}>
+                  <Badge color={trigger.is_active ? 'mint' : 'ink'}>
                     {trigger.is_active ? 'Active' : 'Inactive'}
-                  </span>
-                  <button
+                  </Badge>
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
                     onClick={() => handleDeleteTrigger(trigger.id)}
-                    className="p-2 text-gray-400 hover:text-red-500"
+                    className="p-2 text-ink-500 hover:text-punch transition-colors rounded-lg hover:bg-punch/10"
                   >
                     <Trash2 className="w-4 h-4" />
-                  </button>
+                  </motion.button>
                 </div>
-              </div>
+              </motion.div>
             ))
           )}
         </div>
-      </div>
+      </Card>
 
-      {/* Recent Sync Logs - Collapsed by default */}
-      <div className="bg-white rounded-xl border border-gray-200">
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Recent Sync Logs</h2>
-          {syncLogs.length > 2 && (
+      {/* Recent Sync Logs */}
+      <Card className="overflow-hidden">
+        <div className="px-6 py-4 border-b border-ink-600/20 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-5 h-5 text-electric" />
+            <h2 className="text-lg font-heading font-semibold text-ink-50">Recent Sync Logs</h2>
+          </div>
+          {syncLogs.length > 3 && (
             <button
               onClick={() => setShowAllLogs(!showAllLogs)}
-              className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+              className="inline-flex items-center gap-1 text-sm text-ink-400 hover:text-ink-200 transition-colors"
             >
               {showAllLogs ? (
                 <>
@@ -637,44 +650,46 @@ export default function GameDetailPage() {
             </button>
           )}
         </div>
-        <div className="divide-y divide-gray-200">
+        <div className="divide-y divide-ink-600/20">
           {visibleLogs.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">
+            <div className="p-6 text-center text-ink-500">
               No sync logs yet. Trigger a sync to see logs here.
             </div>
           ) : (
-            visibleLogs.map((log) => (
-              <div key={log.id} className="p-4 flex items-center justify-between">
+            visibleLogs.map((log, index) => (
+              <motion.div
+                key={log.id}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: index * 0.03 }}
+                className={`p-4 flex items-center justify-between ${
+                  log.status === 'failed' ? 'bg-punch/5' : ''
+                }`}
+              >
                 <div className="flex items-center gap-3">
-                  {log.status === 'completed' ? (
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                  ) : log.status === 'failed' ? (
-                    <XCircle className="w-5 h-5 text-red-500" />
-                  ) : (
-                    <RefreshCw className="w-5 h-5 text-blue-500 animate-spin" />
-                  )}
+                  <SyncStatusDot status={log.status as 'completed' | 'failed' | 'running'} />
                   <div>
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className="text-sm font-medium text-ink-200">
                       {log.sync_type === 'manual' ? 'Manual Sync' : 'Scheduled Sync'}
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-ink-500">
                       {formatDate(log.started_at)}
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm text-gray-900">
+                  <div className="text-sm text-ink-200">
                     {log.users_synced} users, {log.elements_synced} elements
                   </div>
                   {log.error_message && (
-                    <div className="text-xs text-red-500">{log.error_message}</div>
+                    <div className="text-xs text-punch mt-0.5">{log.error_message}</div>
                   )}
                 </div>
-              </div>
+              </motion.div>
             ))
           )}
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

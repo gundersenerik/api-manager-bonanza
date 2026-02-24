@@ -1,13 +1,25 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Save,
   RefreshCw,
   CheckCircle,
   AlertCircle,
   ExternalLink,
+  Wifi,
+  WifiOff,
+  Gamepad2,
+  Zap,
+  Settings2,
 } from 'lucide-react'
+import { Card } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { CodeBlock } from '@/components/ui/CodeBlock'
+import { PageHeader } from '@/components/layout/PageHeader'
+import { LoadingScreen } from '@/components/ui/LoadingDots'
 
 interface SettingsData {
   swush_api_key: string
@@ -16,6 +28,8 @@ interface SettingsData {
   braze_rest_endpoint: string
   default_sync_interval: number
 }
+
+type TestStatus = 'idle' | 'testing' | 'success' | 'error'
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsData>({
@@ -27,10 +41,8 @@ export default function SettingsPage() {
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [testingSwush, setTestingSwush] = useState(false)
-  const [testingBraze, setTestingBraze] = useState(false)
-  const [swushStatus, setSwushStatus] = useState<'success' | 'error' | null>(null)
-  const [brazeStatus, setBrazeStatus] = useState<'success' | 'error' | null>(null)
+  const [swushStatus, setSwushStatus] = useState<TestStatus>('idle')
+  const [brazeStatus, setBrazeStatus] = useState<TestStatus>('idle')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   useEffect(() => {
@@ -66,10 +78,11 @@ export default function SettingsPage() {
 
       if (data.success) {
         setMessage({ type: 'success', text: 'Settings saved successfully' })
+        setTimeout(() => setMessage(null), 3000)
       } else {
         setMessage({ type: 'error', text: data.error || 'Failed to save settings' })
       }
-    } catch (error) {
+    } catch {
       setMessage({ type: 'error', text: 'Failed to save settings' })
     } finally {
       setSaving(false)
@@ -77,9 +90,7 @@ export default function SettingsPage() {
   }
 
   const testSwushConnection = async () => {
-    setTestingSwush(true)
-    setSwushStatus(null)
-
+    setSwushStatus('testing')
     try {
       const res = await fetch('/api/admin/settings/test-swush', {
         method: 'POST',
@@ -89,20 +100,17 @@ export default function SettingsPage() {
           base_url: settings.swush_api_base_url,
         }),
       })
-
       const data = await res.json()
       setSwushStatus(data.success ? 'success' : 'error')
-    } catch (error) {
+      setTimeout(() => setSwushStatus('idle'), 3000)
+    } catch {
       setSwushStatus('error')
-    } finally {
-      setTestingSwush(false)
+      setTimeout(() => setSwushStatus('idle'), 3000)
     }
   }
 
   const testBrazeConnection = async () => {
-    setTestingBraze(true)
-    setBrazeStatus(null)
-
+    setBrazeStatus('testing')
     try {
       const res = await fetch('/api/admin/settings/test-braze', {
         method: 'POST',
@@ -112,210 +120,224 @@ export default function SettingsPage() {
           endpoint: settings.braze_rest_endpoint,
         }),
       })
-
       const data = await res.json()
       setBrazeStatus(data.success ? 'success' : 'error')
-    } catch (error) {
+      setTimeout(() => setBrazeStatus('idle'), 3000)
+    } catch {
       setBrazeStatus('error')
-    } finally {
-      setTestingBraze(false)
+      setTimeout(() => setBrazeStatus('idle'), 3000)
     }
   }
 
+  const TestButton = ({ status, onClick, disabled }: { status: TestStatus; onClick: () => void; disabled: boolean }) => (
+    <motion.button
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      disabled={disabled || status === 'testing'}
+      className={`
+        inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 disabled:cursor-not-allowed
+        ${status === 'success'
+          ? 'bg-mint/15 text-mint ring-1 ring-mint/30'
+          : status === 'error'
+          ? 'bg-punch/15 text-punch ring-1 ring-punch/30'
+          : 'bg-ink-700/30 text-ink-300 ring-1 ring-ink-600/30 hover:bg-ink-700/50'
+        }
+      `}
+    >
+      <AnimatePresence mode="wait" initial={false}>
+        {status === 'testing' ? (
+          <motion.div key="testing" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+            <RefreshCw className="w-4 h-4 animate-spin" />
+          </motion.div>
+        ) : status === 'success' ? (
+          <motion.div key="success" initial={{ scale: 0 }} animate={{ scale: [0, 1.3, 1] }} exit={{ scale: 0 }}>
+            <Wifi className="w-4 h-4" />
+          </motion.div>
+        ) : status === 'error' ? (
+          <motion.div key="error" initial={{ scale: 0 }} animate={{ scale: [0, 1.3, 1] }} exit={{ scale: 0 }}>
+            <WifiOff className="w-4 h-4" />
+          </motion.div>
+        ) : (
+          <motion.div key="idle" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+            <Wifi className="w-4 h-4" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {status === 'testing' ? 'Testing...' : status === 'success' ? 'Connected!' : status === 'error' ? 'Failed' : 'Test Connection'}
+    </motion.button>
+  )
+
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-gray-400" />
-      </div>
-    )
+    return <LoadingScreen message="Loading settings..." />
   }
+
+  const envVars = `SWUSH_API_KEY=your-swush-api-key
+SWUSH_API_BASE_URL=https://season.swush.com/v1/partner
+BRAZE_API_KEY=your-braze-api-key
+BRAZE_REST_ENDPOINT=https://rest.fra-02.braze.eu`
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <p className="mt-1 text-gray-500">
-            Configure API integrations and default behaviors
-          </p>
-        </div>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
-        >
-          {saving ? (
-            <RefreshCw className="w-4 h-4 animate-spin" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
-          {saving ? 'Saving...' : 'Save Settings'}
-        </button>
-      </div>
+      <PageHeader
+        title="Settings"
+        description="Configure API integrations and default behaviors"
+        actions={
+          <Button
+            icon={Save}
+            onClick={handleSave}
+            disabled={saving}
+            size="sm"
+          >
+            {saving ? 'Saving...' : 'Save Settings'}
+          </Button>
+        }
+      />
 
-      {message && (
-        <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${
-          message.type === 'success' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
-        }`}>
-          {message.type === 'success' ? (
-            <CheckCircle className="w-5 h-5 text-green-600" />
-          ) : (
-            <AlertCircle className="w-5 h-5 text-red-600" />
-          )}
-          <p className={message.type === 'success' ? 'text-green-700' : 'text-red-700'}>
-            {message.text}
-          </p>
-        </div>
-      )}
-
-      <div className="space-y-8">
-        {/* SWUSH API Settings */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">SWUSH Partner API</h2>
-              <p className="text-sm text-gray-500">
-                Configure your SWUSH Partner API credentials
+      <AnimatePresence>
+        {message && (
+          <motion.div
+            initial={{ opacity: 0, y: -8, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -8, height: 0 }}
+            className="mb-6"
+          >
+            <div className={`p-4 rounded-xl flex items-center gap-3 ${
+              message.type === 'success'
+                ? 'bg-mint/10 border border-mint/20'
+                : 'bg-punch/10 border border-punch/20'
+            }`}>
+              {message.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 text-mint" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-punch" />
+              )}
+              <p className={message.type === 'success' ? 'text-mint' : 'text-punch'}>
+                {message.text}
               </p>
             </div>
-            <button
-              onClick={testSwushConnection}
-              disabled={testingSwush || !settings.swush_api_key}
-              className="inline-flex items-center gap-2 px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
-            >
-              {testingSwush ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : swushStatus === 'success' ? (
-                <CheckCircle className="w-4 h-4 text-green-500" />
-              ) : swushStatus === 'error' ? (
-                <AlertCircle className="w-4 h-4 text-red-500" />
-              ) : null}
-              Test Connection
-            </button>
-          </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                API Base URL
-              </label>
-              <input
-                type="text"
-                value={settings.swush_api_base_url}
-                onChange={(e) => setSettings(prev => ({ ...prev, swush_api_base_url: e.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                placeholder="https://season.swush.com/v1/partner"
+      <div className="space-y-6">
+        {/* SWUSH API Settings */}
+        <Card className="overflow-hidden">
+          <div className="border-l-4 border-electric p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-electric/15">
+                  <Gamepad2 className="w-5 h-5 text-electric" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-heading font-semibold text-ink-50">SWUSH Partner API</h2>
+                  <p className="text-sm text-ink-400">Configure your SWUSH Partner API credentials</p>
+                </div>
+              </div>
+              <TestButton
+                status={swushStatus}
+                onClick={testSwushConnection}
+                disabled={!settings.swush_api_key}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                API Key
-              </label>
-              <input
+
+            <div className="space-y-4">
+              <Input
+                label="API Base URL"
+                value={settings.swush_api_base_url}
+                onChange={(e) => setSettings(prev => ({ ...prev, swush_api_base_url: e.target.value }))}
+                placeholder="https://season.swush.com/v1/partner"
+              />
+              <Input
+                label="API Key"
                 type="password"
                 value={settings.swush_api_key}
                 onChange={(e) => setSettings(prev => ({ ...prev, swush_api_key: e.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 placeholder="Enter your SWUSH Partner API key"
               />
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Braze API Settings */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Braze API</h2>
-              <p className="text-sm text-gray-500">
-                Configure Braze for campaign triggers
-              </p>
-            </div>
-            <button
-              onClick={testBrazeConnection}
-              disabled={testingBraze || !settings.braze_api_key}
-              className="inline-flex items-center gap-2 px-3 py-1.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
-            >
-              {testingBraze ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : brazeStatus === 'success' ? (
-                <CheckCircle className="w-4 h-4 text-green-500" />
-              ) : brazeStatus === 'error' ? (
-                <AlertCircle className="w-4 h-4 text-red-500" />
-              ) : null}
-              Test Connection
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                REST API Endpoint
-              </label>
-              <input
-                type="text"
-                value={settings.braze_rest_endpoint}
-                onChange={(e) => setSettings(prev => ({ ...prev, braze_rest_endpoint: e.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                placeholder="https://rest.fra-02.braze.eu"
+        <Card className="overflow-hidden">
+          <div className="border-l-4 border-ocean p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-ocean/15">
+                  <Zap className="w-5 h-5 text-ocean" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-heading font-semibold text-ink-50">Braze API</h2>
+                  <p className="text-sm text-ink-400">Configure Braze for campaign triggers</p>
+                </div>
+              </div>
+              <TestButton
+                status={brazeStatus}
+                onClick={testBrazeConnection}
+                disabled={!settings.braze_api_key}
               />
-              <p className="mt-1 text-xs text-gray-500">
-                <a href="https://www.braze.com/docs/api/basics/" target="_blank" rel="noopener noreferrer" className="text-red-600 hover:underline inline-flex items-center gap-1">
-                  Find your endpoint <ExternalLink className="w-3 h-3" />
-                </a>
-              </p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                API Key
-              </label>
-              <input
+
+            <div className="space-y-4">
+              <div>
+                <Input
+                  label="REST API Endpoint"
+                  value={settings.braze_rest_endpoint}
+                  onChange={(e) => setSettings(prev => ({ ...prev, braze_rest_endpoint: e.target.value }))}
+                  placeholder="https://rest.fra-02.braze.eu"
+                />
+                <p className="mt-1 text-xs text-ink-500">
+                  <a href="https://www.braze.com/docs/api/basics/" target="_blank" rel="noopener noreferrer" className="text-ocean hover:text-ocean-300 inline-flex items-center gap-1 transition-colors">
+                    Find your endpoint <ExternalLink className="w-3 h-3" />
+                  </a>
+                </p>
+              </div>
+              <Input
+                label="API Key"
                 type="password"
                 value={settings.braze_api_key}
                 onChange={(e) => setSettings(prev => ({ ...prev, braze_api_key: e.target.value }))}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 placeholder="Enter your Braze API key"
               />
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Default Settings */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6">Default Settings</h2>
+        <Card className="overflow-hidden">
+          <div className="border-l-4 border-mint p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-mint/15">
+                <Settings2 className="w-5 h-5 text-mint" />
+              </div>
+              <h2 className="text-lg font-heading font-semibold text-ink-50">Default Settings</h2>
+            </div>
 
-          <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Default Sync Interval (minutes)
-              </label>
-              <input
+              <Input
+                label="Default Sync Interval (minutes)"
                 type="number"
-                min="5"
-                max="1440"
+                min={5}
+                max={1440}
                 value={settings.default_sync_interval}
                 onChange={(e) => setSettings(prev => ({ ...prev, default_sync_interval: parseInt(e.target.value) || 30 }))}
-                className="w-32 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                className="w-32"
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-ink-500">
                 How often new games sync by default (5-1440 minutes)
               </p>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Environment Info */}
-        <div className="bg-gray-50 rounded-xl p-6">
-          <h3 className="font-semibold text-gray-900 mb-3">Environment Variables</h3>
-          <p className="text-sm text-gray-600 mb-4">
+        <div className="bg-ink-900/50 rounded-xl p-6 ring-1 ring-ink-600/20">
+          <h3 className="font-heading font-semibold text-ink-200 mb-3">Environment Variables</h3>
+          <p className="text-sm text-ink-400 mb-4">
             These settings are stored securely. You can also configure them via environment variables:
           </p>
-          <pre className="bg-gray-800 text-gray-100 p-4 rounded-lg text-sm overflow-x-auto">
-{`SWUSH_API_KEY=your-swush-api-key
-SWUSH_API_BASE_URL=https://season.swush.com/v1/partner
-BRAZE_API_KEY=your-braze-api-key
-BRAZE_REST_ENDPOINT=https://rest.fra-02.braze.eu`}
-          </pre>
+          <CodeBlock code={envVars} />
         </div>
       </div>
     </div>

@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-rgb: 249, 250, 251;
+  --foreground-rgb: 240, 237, 250;
+  --background-rgb: 12, 10, 20;
 }
 
 body {
@@ -12,8 +12,122 @@ body {
   background: rgb(var(--background-rgb));
 }
 
+/* Subtle grid texture on dark backgrounds */
+.bg-grid-texture {
+  background-image:
+    linear-gradient(rgba(107, 97, 136, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(107, 97, 136, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Glass-morphism utility */
+.glass {
+  background: rgba(30, 26, 45, 0.6);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.glass-strong {
+  background: rgba(30, 26, 45, 0.8);
+  backdrop-filter: blur(40px);
+  -webkit-backdrop-filter: blur(40px);
+}
+
+/* Gradient text utility */
+.text-gradient-primary {
+  background: linear-gradient(135deg, #6C3AED, #EC4899);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-sync {
+  background: linear-gradient(135deg, #06B6D4, #6C3AED);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-success {
+  background: linear-gradient(135deg, #10B981, #06B6D4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #14111F;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3D3659;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #524A72;
+}
+
+/* Selection color */
+::selection {
+  background: rgba(108, 58, 237, 0.3);
+  color: #F0EDFA;
+}
+
+/* Focus visible ring for keyboard navigation */
+*:focus-visible {
+  outline: 2px solid #6C3AED;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
+}
+
+/* Loading dots animation stagger */
+.dot-1 { animation-delay: 0s; }
+.dot-2 { animation-delay: 0.16s; }
+.dot-3 { animation-delay: 0.32s; }
+
+/* Disco mode easter egg (Konami code) */
+@keyframes disco-bg {
+  0% { filter: hue-rotate(0deg); }
+  25% { filter: hue-rotate(90deg); }
+  50% { filter: hue-rotate(180deg); }
+  75% { filter: hue-rotate(270deg); }
+  100% { filter: hue-rotate(360deg); }
+}
+
+.disco-mode {
+  animation: disco-bg 3s linear infinite;
+}
+
+/* Gradient backgrounds */
+.bg-gradient-sync {
+  background: linear-gradient(135deg, #06B6D4, #6C3AED);
+}
+
+.bg-gradient-primary {
+  background: linear-gradient(135deg, #6C3AED, #EC4899);
 }

@@ -3,7 +3,29 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { ArrowLeft, Rocket, AlertCircle } from 'lucide-react'
+import { Card } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { PageHeader } from '@/components/layout/PageHeader'
+
+const sportTypes = [
+  { value: 'FOOTBALL', label: 'Football', emoji: '\u26BD' },
+  { value: 'HOCKEY', label: 'Hockey', emoji: '\uD83C\uDFD2' },
+  { value: 'F1', label: 'F1', emoji: '\uD83C\uDFCE\uFE0F' },
+  { value: 'OTHER', label: 'Other', emoji: '\uD83C\uDFC6' },
+]
+
+const syncIntervals = [
+  { value: 15, label: '15m' },
+  { value: 30, label: '30m' },
+  { value: 60, label: '1h' },
+  { value: 120, label: '2h' },
+  { value: 360, label: '6h' },
+  { value: 720, label: '12h' },
+  { value: 1440, label: '24h' },
+]
 
 export default function NewGamePage() {
   const router = useRouter()
@@ -46,128 +68,171 @@ export default function NewGamePage() {
 
   return (
     <div>
-      <div className="mb-8">
+      <div className="mb-6">
         <Link
           href="/dashboard/games"
-          className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-700 mb-4"
+          className="inline-flex items-center gap-2 text-ink-400 hover:text-ink-200 transition-colors group mb-4"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <motion.span
+            className="inline-block"
+            whileHover={{ x: -3 }}
+            transition={{ type: 'spring', stiffness: 400, damping: 15 }}
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </motion.span>
           Back to Games
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900">Add New Game</h1>
-        <p className="mt-1 text-gray-500">
-          Configure a new SWUSH fantasy game integration
-        </p>
+        <PageHeader
+          title="Add New Game"
+          description="Configure a new SWUSH fantasy game integration"
+        />
       </div>
 
       <div className="max-w-2xl">
-        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-6">
-          {error && (
-            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {error}
-            </div>
-          )}
+        <Card>
+          <form onSubmit={handleSubmit} className="p-6">
+            <AnimatePresence>
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="mb-6"
+                >
+                  <div className="p-4 bg-punch/10 border border-punch/20 rounded-xl flex items-center gap-3">
+                    <AlertCircle className="w-5 h-5 text-punch flex-shrink-0" />
+                    <p className="text-punch text-sm">{error}</p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Game Key *
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="e.g., ab-champions-manager-2025-2026"
-                value={formData.game_key}
-                onChange={(e) => setFormData({ ...formData, game_key: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              />
-              <p className="mt-1 text-sm text-gray-500">
-                The game key from SWUSH API (e.g., ab-premier-manager-2025-2026)
-              </p>
-            </div>
+            <div className="space-y-8">
+              {/* Game Key */}
+              <div>
+                <Input
+                  label="Game Key"
+                  required
+                  placeholder="e.g., ab-champions-manager-2025-2026"
+                  value={formData.game_key}
+                  onChange={(e) => setFormData({ ...formData, game_key: e.target.value })}
+                />
+                <p className="mt-1.5 text-xs text-ink-500">
+                  The game key from SWUSH API (e.g., ab-premier-manager-2025-2026)
+                </p>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Display Name *
-              </label>
-              <input
-                type="text"
+              {/* Display Name */}
+              <Input
+                label="Display Name"
                 required
                 placeholder="e.g., Champions Manager 2025-2026"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
               />
+
+              {/* Sport Type Tiles */}
+              <div>
+                <label className="block text-sm font-medium text-ink-200 mb-3">
+                  Sport Type
+                </label>
+                <div className="grid grid-cols-4 gap-3">
+                  {sportTypes.map((sport) => (
+                    <motion.button
+                      key={sport.value}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, sport_type: sport.value })}
+                      className={`relative flex flex-col items-center gap-2 p-4 rounded-xl transition-all duration-200 ${
+                        formData.sport_type === sport.value
+                          ? 'bg-electric/15 ring-2 ring-electric/50'
+                          : 'bg-ink-700/30 ring-1 ring-ink-600/30 hover:bg-ink-700/50 hover:ring-ink-500/40'
+                      }`}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      {formData.sport_type === sport.value && (
+                        <motion.div
+                          layoutId="sport-indicator"
+                          className="absolute inset-0 rounded-xl bg-electric/10"
+                          transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                        />
+                      )}
+                      <span className="text-2xl relative z-10">{sport.emoji}</span>
+                      <span className={`text-sm font-medium relative z-10 ${
+                        formData.sport_type === sport.value ? 'text-electric' : 'text-ink-300'
+                      }`}>
+                        {sport.label}
+                      </span>
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Subsite Key */}
+              <div>
+                <Input
+                  label="Subsite Key"
+                  value={formData.subsite_key}
+                  onChange={(e) => setFormData({ ...formData, subsite_key: e.target.value })}
+                />
+                <p className="mt-1.5 text-xs text-ink-500">
+                  Usually &quot;aftonbladet&quot; for Aftonbladet games
+                </p>
+              </div>
+
+              {/* Sync Interval Pills */}
+              <div>
+                <label className="block text-sm font-medium text-ink-200 mb-3">
+                  Sync Interval
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {syncIntervals.map((interval) => (
+                    <motion.button
+                      key={interval.value}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, sync_interval_minutes: interval.value })}
+                      className={`relative px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
+                        formData.sync_interval_minutes === interval.value
+                          ? 'bg-ocean/15 text-ocean ring-1 ring-ocean/40'
+                          : 'bg-ink-700/30 text-ink-300 ring-1 ring-ink-600/30 hover:bg-ink-700/50 hover:text-ink-200'
+                      }`}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      {formData.sync_interval_minutes === interval.value && (
+                        <motion.div
+                          layoutId="interval-indicator"
+                          className="absolute inset-0 rounded-full bg-ocean/10"
+                          transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                        />
+                      )}
+                      <span className="relative z-10">{interval.label}</span>
+                    </motion.button>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-ink-500">
+                  How often the game data syncs from SWUSH API
+                </p>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Sport Type
-              </label>
-              <select
-                value={formData.sport_type}
-                onChange={(e) => setFormData({ ...formData, sport_type: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+            <div className="mt-10 flex items-center justify-end gap-4">
+              <Link
+                href="/dashboard/games"
+                className="px-4 py-2 text-ink-400 hover:text-ink-200 transition-colors text-sm font-medium"
               >
-                <option value="FOOTBALL">Football</option>
-                <option value="HOCKEY">Hockey</option>
-                <option value="F1">F1</option>
-                <option value="OTHER">Other</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Subsite Key
-              </label>
-              <input
-                type="text"
-                value={formData.subsite_key}
-                onChange={(e) => setFormData({ ...formData, subsite_key: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              />
-              <p className="mt-1 text-sm text-gray-500">
-                Usually &quot;aftonbladet&quot; for Aftonbladet games
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Sync Interval (minutes)
-              </label>
-              <select
-                value={formData.sync_interval_minutes}
-                onChange={(e) => setFormData({ ...formData, sync_interval_minutes: parseInt(e.target.value) })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                Cancel
+              </Link>
+              <Button
+                type="submit"
+                disabled={loading}
+                icon={loading ? undefined : Rocket}
               >
-                <option value={15}>Every 15 minutes</option>
-                <option value={30}>Every 30 minutes</option>
-                <option value={60}>Every hour</option>
-                <option value={120}>Every 2 hours</option>
-                <option value={360}>Every 6 hours</option>
-                <option value={720}>Every 12 hours</option>
-                <option value={1440}>Once a day</option>
-              </select>
+                {loading ? 'Creating...' : 'Create Game'}
+              </Button>
             </div>
-          </div>
-
-          <div className="mt-8 flex items-center justify-end gap-4">
-            <Link
-              href="/dashboard/games"
-              className="px-4 py-2 text-gray-700 hover:text-gray-900"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={loading}
-              className="inline-flex items-center gap-2 px-6 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-              Create Game
-            </button>
-          </div>
-        </form>
+          </form>
+        </Card>
       </div>
     </div>
   )
