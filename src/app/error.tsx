@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react'
 import Link from 'next/link'
+import { Button } from '@/components/ui/Button'
 
 interface ErrorProps {
   error: Error & { digest?: string }
@@ -11,43 +13,52 @@ interface ErrorProps {
 
 export default function GlobalError({ error, reset }: ErrorProps) {
   useEffect(() => {
-    // Log the error to an error reporting service
     console.error('[App] Global error:', error)
   }, [error])
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-ink-950 flex items-center justify-center p-4">
       <div className="text-center max-w-md">
-        <div className="mx-auto w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mb-6">
-          <AlertTriangle className="w-10 h-10 text-red-600" />
-        </div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">
-          Something went wrong
-        </h1>
-        <p className="text-gray-500 mb-6">
-          An unexpected error occurred. Please try again or return to the homepage.
-        </p>
-        {error.digest && (
-          <p className="text-xs text-gray-400 mb-6">
-            Error ID: {error.digest}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 200 }}
+          className="mx-auto w-20 h-20 bg-punch/10 rounded-full flex items-center justify-center mb-6 ring-1 ring-punch/20"
+        >
+          <motion.div
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            <AlertTriangle className="w-10 h-10 text-punch" />
+          </motion.div>
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          <h1 className="text-2xl font-heading font-bold text-ink-50 mb-2">
+            Something went wrong
+          </h1>
+          <p className="text-ink-400 mb-6">
+            An unexpected error occurred. Please try again or return to the homepage.
           </p>
-        )}
-        <div className="flex items-center justify-center gap-4">
-          <button
-            onClick={reset}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Try again
-          </button>
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
-          >
-            <Home className="w-4 h-4" />
-            Go home
-          </Link>
-        </div>
+          {error.digest && (
+            <p className="text-xs text-ink-600 font-mono mb-6">
+              Error ID: {error.digest}
+            </p>
+          )}
+          <div className="flex items-center justify-center gap-4">
+            <Button onClick={reset} icon={RefreshCw}>
+              Try again
+            </Button>
+            <Link href="/">
+              <Button variant="ghost" icon={Home}>
+                Go home
+              </Button>
+            </Link>
+          </div>
+        </motion.div>
       </div>
     </div>
   )

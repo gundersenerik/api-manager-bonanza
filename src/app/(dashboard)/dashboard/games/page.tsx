@@ -2,15 +2,21 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { motion } from 'framer-motion'
 import {
   Gamepad2,
   Plus,
-  RefreshCw,
-  CheckCircle,
-  XCircle,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react'
 import { Game } from '@/types'
+import { PageHeader } from '@/components/layout/PageHeader'
+import { Card } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { StatusDot } from '@/components/ui/StatusDot'
+import { SportBadge } from '@/components/ui/Badge'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { LoadingScreen } from '@/components/ui/LoadingDots'
 
 export default function GamesPage() {
   const [games, setGames] = useState<Game[]>([])
@@ -44,151 +50,140 @@ export default function GamesPage() {
     return new Date(dateString).toLocaleString('sv-SE')
   }
 
-  const getSportBadgeColor = (sport: string) => {
-    switch (sport) {
-      case 'FOOTBALL': return 'bg-green-100 text-green-700'
-      case 'HOCKEY': return 'bg-blue-100 text-blue-700'
-      case 'F1': return 'bg-red-100 text-red-700'
-      default: return 'bg-gray-100 text-gray-700'
-    }
-  }
-
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-gray-400" />
-      </div>
-    )
+    return <LoadingScreen message="Loading games..." />
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Games</h1>
-          <p className="mt-1 text-gray-500">
-            Manage your SWUSH fantasy game integrations
-          </p>
-        </div>
-        <Link
-          href="/dashboard/games/new"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Game
-        </Link>
-      </div>
+      <PageHeader
+        title="Games"
+        description="Manage your SWUSH fantasy game integrations"
+        actions={
+          <Link href="/dashboard/games/new">
+            <Button icon={Plus} size="sm">Add Game</Button>
+          </Link>
+        }
+      />
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 p-4 bg-punch/10 border border-punch/20 rounded-xl flex items-center gap-3"
+        >
+          <AlertCircle className="w-5 h-5 text-punch flex-shrink-0" />
           <div>
-            <p className="text-red-700 font-medium">Failed to load games</p>
-            <p className="text-red-600 text-sm">{error}</p>
+            <p className="text-punch font-medium">Failed to load games</p>
+            <p className="text-punch/70 text-sm">{error}</p>
           </div>
           <button
             onClick={fetchGames}
-            className="ml-auto px-3 py-1 text-sm bg-red-100 hover:bg-red-200 text-red-700 rounded"
+            className="ml-auto px-3 py-1.5 text-sm bg-punch/20 hover:bg-punch/30 text-punch rounded-lg transition-colors"
           >
+            <RefreshCw className="w-3.5 h-3.5 inline mr-1" />
             Retry
           </button>
-        </div>
+        </motion.div>
       )}
 
       {!error && games.length === 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <Gamepad2 className="w-12 h-12 mx-auto text-gray-300 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No games yet</h3>
-          <p className="text-gray-500 mb-4">Get started by adding your first game</p>
-          <Link
-            href="/dashboard/games/new"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Add Game
-          </Link>
-        </div>
+        <Card>
+          <div className="p-8">
+            <EmptyState
+              icon={Gamepad2}
+              title="No games yet"
+              description="Get started by adding your first game"
+              action={
+                <Link href="/dashboard/games/new">
+                  <Button icon={Plus}>Add Game</Button>
+                </Link>
+              }
+            />
+          </div>
+        </Card>
       )}
 
       {games.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Game
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Sport
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Round
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Users
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Sync Interval
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Last Synced
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {games.map((game) => (
-                <tr key={game.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="font-medium text-gray-900">{game.name}</div>
-                    <div className="text-sm text-gray-500">{game.game_key}</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getSportBadgeColor(game.sport_type)}`}>
-                      {game.sport_type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {game.current_round}/{game.total_rounds || '?'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {(game.users_total || 0).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {game.sync_interval_minutes} min
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {formatDate(game.last_synced_at)}
-                  </td>
-                  <td className="px-6 py-4">
-                    {game.is_active ? (
-                      <span className="inline-flex items-center gap-1 text-green-600 text-sm">
-                        <CheckCircle className="w-4 h-4" />
-                        Active
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-gray-400 text-sm">
-                        <XCircle className="w-4 h-4" />
-                        Inactive
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <Link
-                      href={`/dashboard/games/${game.id}`}
-                      className="text-red-600 hover:text-red-700 text-sm font-medium"
-                    >
-                      View →
-                    </Link>
-                  </td>
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-ink-600/30 bg-ink-800/80">
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Game
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Sport
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Round
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Users
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Sync Interval
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Last Synced
+                  </th>
+                  <th className="px-6 py-3.5 text-left text-xs font-medium text-ink-400 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3.5"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-ink-600/20">
+                {games.map((game, index) => (
+                  <motion.tr
+                    key={game.id}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.04, duration: 0.3 }}
+                    className="group hover:bg-ink-700/20 transition-colors"
+                  >
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-ink-50">{game.name}</div>
+                      <div className="text-sm text-ink-500 font-mono">{game.game_key}</div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <SportBadge sport={game.sport_type} />
+                    </td>
+                    <td className="px-6 py-4 text-sm text-ink-200">
+                      {game.current_round}/{game.total_rounds || '?'}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-ink-200">
+                      {(game.users_total || 0).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-ink-400">
+                      {game.sync_interval_minutes} min
+                    </td>
+                    <td className="px-6 py-4 text-sm text-ink-400">
+                      {formatDate(game.last_synced_at)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <StatusDot active={game.is_active} />
+                        <span className={`text-sm ${game.is_active ? 'text-mint' : 'text-ink-500'}`}>
+                          {game.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <Link
+                        href={`/dashboard/games/${game.id}`}
+                        className="text-electric-400 hover:text-electric-300 text-sm font-medium transition-colors"
+                      >
+                        View →
+                      </Link>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
     </div>
   )
