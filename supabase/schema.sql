@@ -340,6 +340,7 @@ CREATE TABLE IF NOT EXISTS round_intros (
   articles_used JSONB DEFAULT '[]'::jsonb,
   vespa_query TEXT,
   model_used TEXT,
+  generation_metadata JSONB DEFAULT NULL,
   generated_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
