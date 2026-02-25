@@ -253,6 +253,20 @@ export interface AppUser {
 // Round Intro Types
 // ============================================
 
+export interface GenerationMetadata {
+  attempts: number
+  validation: {
+    valid: boolean
+    warnings: string[]
+    errors: string[]
+  }
+  articles_count: number
+  trending_players_count: number
+  sport_type: string
+  temperature: number
+  latency_ms: number
+}
+
 export interface RoundIntro {
   id: string
   game_id: string
@@ -261,6 +275,7 @@ export interface RoundIntro {
   articles_used: VespaArticleRef[]
   vespa_query: string | null
   model_used: string | null
+  generation_metadata: GenerationMetadata | null
   generated_at: string
   created_at: string
   updated_at: string
