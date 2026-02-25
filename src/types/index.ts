@@ -227,6 +227,7 @@ export interface BrazeUserResponse {
     hot: { name: string; team: string; trend: number }[]
     falling: { name: string; team: string; trend: number }[]
   }
+  round_intro?: string | null
 }
 
 // ============================================
@@ -246,6 +247,37 @@ export interface AppUser {
   last_login_at: string | null
   created_at: string
   updated_at: string
+}
+
+// ============================================
+// Round Intro Types
+// ============================================
+
+export interface RoundIntro {
+  id: string
+  game_id: string
+  round_number: number
+  intro_text: string
+  articles_used: VespaArticleRef[]
+  vespa_query: string | null
+  model_used: string | null
+  generated_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface VespaArticle {
+  article_id: string
+  title: string
+  content: string
+  created_date: number
+  relevance: number
+}
+
+export interface VespaArticleRef {
+  article_id: string
+  title: string
+  relevance: number
 }
 
 // ============================================

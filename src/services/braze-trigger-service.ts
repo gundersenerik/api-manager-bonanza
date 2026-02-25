@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase/server'
 import { Game, GameTrigger } from '@/types'
 import { differenceInHours } from 'date-fns'
 import { log } from '@/lib/logger'
+import { generateRoundIntro, getRoundIntro } from '@/services/round-intro-service'
 
 // Configuration constants for deadline reminder trigger
 // Window to trigger 24h reminder (allows for cron timing variance)
@@ -16,6 +17,7 @@ interface BrazeTriggerProperties {
   total_rounds: number
   trade_deadline: string | null
   trigger_type: string
+  round_intro?: string
 }
 
 interface BrazeApiResponse {
@@ -269,14 +271,36 @@ export class BrazeTriggerService {
 
     log.braze.info({ triggerType: trigger.trigger_type, reason: check.reason }, 'Triggering campaign')
 
-    // Trigger the Braze campaign
-    const triggerProperties = {
+    // Build base trigger properties
+    const triggerProperties: BrazeTriggerProperties = {
       game_key: game.game_key,
       game_name: game.name,
       current_round: game.current_round,
       total_rounds: game.total_rounds,
       trade_deadline: game.next_trade_deadline,
       trigger_type: trigger.trigger_type,
+    }
+
+    // For round_started, generate AI round intro (non-blocking — if it fails, trigger still fires)
+    if (trigger.trigger_type === 'round_started') {
+      try {
+        // Check if intro already exists for this round
+        let intro = await getRoundIntro(game.id, game.current_round)
+
+        // If not, generate one
+        if (!intro) {
+          log.braze.info({ gameKey: game.game_key, round: game.current_round }, 'Generating AI round intro for trigger')
+          intro = await generateRoundIntro(game.id)
+        }
+
+        if (intro) {
+          triggerProperties.round_intro = intro.intro_text
+          log.braze.info({ gameKey: game.game_key }, 'Round intro included in trigger properties')
+        }
+      } catch (introError) {
+        // Non-blocking — log and continue with trigger
+        log.braze.warn({ err: introError, gameKey: game.game_key }, 'Failed to generate round intro for trigger (non-blocking)')
+      }
     }
 
     const result = await this.triggerBrazeCampaign(

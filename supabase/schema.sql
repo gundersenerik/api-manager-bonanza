@@ -329,5 +329,40 @@ RETURNS BOOLEAN AS $$
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 -- ============================================
+-- ROUND_INTROS TABLE
+-- AI-generated round preview content
+-- ============================================
+CREATE TABLE IF NOT EXISTS round_intros (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  round_number INTEGER NOT NULL,
+  intro_text TEXT NOT NULL,
+  articles_used JSONB DEFAULT '[]'::jsonb,
+  vespa_query TEXT,
+  model_used TEXT,
+  generated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(game_id, round_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_round_intros_game_round ON round_intros(game_id, round_number);
+
+ALTER TABLE round_intros ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access to round_intros" ON round_intros
+  FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Authenticated can read round_intros" ON round_intros
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+-- Apply trigger to round_intros table
+DROP TRIGGER IF EXISTS update_round_intros_updated_at ON round_intros;
+CREATE TRIGGER update_round_intros_updated_at
+  BEFORE UPDATE ON round_intros
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
 -- DONE
 -- ============================================
