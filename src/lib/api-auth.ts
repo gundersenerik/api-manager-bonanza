@@ -1,5 +1,6 @@
-import { createUserServerClient } from '@/lib/supabase/server'
+import { createUserServerClient, supabaseAdmin } from '@/lib/supabase/server'
 import { log } from '@/lib/logger'
+import type { AppUser, AppUserRole } from '@/types'
 
 /**
  * Verify admin authentication for protected routes
@@ -32,6 +33,56 @@ export async function requireAdminAuth(): Promise<Response | null> {
     return errorResponse('Unauthorized', 401)
   }
   return null
+}
+
+/**
+ * Get the current user's app_users record (includes role).
+ * Returns null if no valid session or user not in app_users.
+ */
+export async function getAppUser(): Promise<AppUser | null> {
+  try {
+    const supabase = await createUserServerClient()
+    const { data: { user }, error } = await supabase.auth.getUser()
+    if (error || !user) return null
+
+    const admin = supabaseAdmin()
+    const { data: appUser } = await admin
+      .from('app_users')
+      .select('*')
+      .eq('auth_user_id', user.id)
+      .eq('is_active', true)
+      .single()
+
+    return appUser as AppUser | null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Require a specific role. Returns an error Response if not authorized,
+ * or the AppUser if authorized.
+ */
+export async function requireRole(
+  requiredRole: AppUserRole
+): Promise<Response | AppUser> {
+  const appUser = await getAppUser()
+  if (!appUser) {
+    return errorResponse('Unauthorized', 401)
+  }
+
+  if (requiredRole === 'admin' && appUser.role !== 'admin') {
+    return errorResponse('Forbidden: admin access required', 403)
+  }
+
+  return appUser
+}
+
+/**
+ * Convenience: require admin role for an API route.
+ */
+export async function requireAdmin(): Promise<Response | AppUser> {
+  return requireRole('admin')
 }
 
 /**

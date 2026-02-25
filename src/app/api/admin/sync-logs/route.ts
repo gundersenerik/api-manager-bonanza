@@ -1,14 +1,14 @@
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { jsonResponse, errorResponse, requireAdminAuth } from '@/lib/api-auth'
+import { jsonResponse, errorResponse, requireRole } from '@/lib/api-auth'
 
 /**
  * GET /api/admin/sync-logs
  * List all sync logs with game info
  */
 export async function GET() {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Any invited user can view sync logs
+  const result = await requireRole('user')
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
 

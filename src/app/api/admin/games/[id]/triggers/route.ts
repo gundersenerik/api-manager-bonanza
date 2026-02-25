@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { jsonResponse, errorResponse, requireAdminAuth } from '@/lib/api-auth'
+import { jsonResponse, errorResponse, requireRole, requireAdmin } from '@/lib/api-auth'
 import { z } from 'zod'
 
 interface RouteContext {
@@ -24,9 +24,9 @@ const UpdateTriggerSchema = z.object({
  * Get all triggers for a game
  */
 export async function GET(_request: NextRequest, { params }: RouteContext) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Any invited user can view triggers
+  const result = await requireRole('user')
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
   const { id } = await params
@@ -56,9 +56,9 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
  * Create a new trigger for a game
  */
 export async function POST(request: NextRequest, { params }: RouteContext) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Only admins can create triggers
+  const result = await requireAdmin()
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
   const { id } = await params
@@ -112,9 +112,9 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
  * Update a trigger
  */
 export async function PUT(request: NextRequest, _context: RouteContext) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Only admins can update triggers
+  const result = await requireAdmin()
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
 
@@ -155,9 +155,9 @@ export async function PUT(request: NextRequest, _context: RouteContext) {
  * Delete a trigger
  */
 export async function DELETE(request: NextRequest, _context: RouteContext) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Only admins can delete triggers
+  const result = await requireAdmin()
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
 

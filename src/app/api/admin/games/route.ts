@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { jsonResponse, errorResponse, requireAdminAuth } from '@/lib/api-auth'
+import { jsonResponse, errorResponse, requireRole, requireAdmin } from '@/lib/api-auth'
 import { z } from 'zod'
 
 const CreateGameSchema = z.object({
@@ -16,9 +16,9 @@ const CreateGameSchema = z.object({
  * List all games
  */
 export async function GET(_request: NextRequest) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Any invited user can view games
+  const result = await requireRole('user')
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
 
@@ -46,9 +46,9 @@ export async function GET(_request: NextRequest) {
  * Create a new game
  */
 export async function POST(request: NextRequest) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Only admins can create games
+  const result = await requireAdmin()
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
 

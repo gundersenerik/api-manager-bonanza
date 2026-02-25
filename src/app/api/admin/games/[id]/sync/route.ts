@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { syncService } from '@/services/sync-service'
-import { jsonResponse, errorResponse, requireAdminAuth } from '@/lib/api-auth'
+import { jsonResponse, errorResponse, requireRole } from '@/lib/api-auth'
 import { log } from '@/lib/logger'
 import { Game } from '@/types'
 
@@ -14,9 +14,9 @@ interface RouteContext {
  * Trigger a manual sync for a game
  */
 export async function POST(_request: NextRequest, { params }: RouteContext) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Any invited user can trigger syncs
+  const result = await requireRole('user')
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
   const { id } = await params

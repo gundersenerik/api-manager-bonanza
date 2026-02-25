@@ -4,6 +4,7 @@ import { errorResponse } from '@/lib/api-auth'
 import { checkRateLimit, getRateLimitKey, rateLimitHeaders, RATE_LIMITS } from '@/lib/rate-limit'
 import { log } from '@/lib/logger'
 import { BrazeUserResponse, Element } from '@/types'
+import { getRoundIntro } from '@/services/round-intro-service'
 import { differenceInHours } from 'date-fns'
 import { z } from 'zod'
 import { timingSafeEqual } from 'crypto'
@@ -188,6 +189,17 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     const topPerformer = sortedByTrend[0] || null
     const worstPerformer = sortedByTrend[sortedByTrend.length - 1] || null
 
+    // Fetch AI-generated round intro (non-blocking, optional)
+    let roundIntroText: string | null = null
+    try {
+      const intro = await getRoundIntro(game.id, game.current_round)
+      if (intro) {
+        roundIntroText = intro.intro_text
+      }
+    } catch {
+      // Non-blocking — if intro fetch fails, continue without it
+    }
+
     // Build response
     const response: BrazeUserResponse = {
       user: {
@@ -240,6 +252,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
           trend: el.trend,
         })),
       },
+      round_intro: roundIntroText,
     }
 
     // Return response with rate limit headers

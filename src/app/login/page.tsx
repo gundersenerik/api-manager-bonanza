@@ -13,7 +13,10 @@ function LoginForm() {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(
-    urlError === 'auth_callback_error' ? 'Authentication failed. Please try again.' : null
+    urlError === 'auth_callback_error' ? 'Authentication failed. Please try again.' :
+    urlError === 'not_invited' ? 'Access denied. You have not been invited to this app. Contact an admin to get access.' :
+    urlError === 'no_email' ? 'Could not retrieve your email address. Please try again.' :
+    null
   )
 
   const handleGoogleLogin = async () => {

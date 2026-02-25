@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { jsonResponse, errorResponse, requireAdminAuth } from '@/lib/api-auth'
+import { jsonResponse, errorResponse, requireRole, requireAdmin } from '@/lib/api-auth'
 import { z } from 'zod'
 
 interface RouteContext {
@@ -20,9 +20,9 @@ const UpdateGameSchema = z.object({
  * Get a single game with stats
  */
 export async function GET(_request: NextRequest, { params }: RouteContext) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Any invited user can view game details
+  const result = await requireRole('user')
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
   const { id } = await params
@@ -83,9 +83,9 @@ export async function GET(_request: NextRequest, { params }: RouteContext) {
  * Update a game
  */
 export async function PUT(request: NextRequest, { params }: RouteContext) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Only admins can edit games
+  const result = await requireAdmin()
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
   const { id } = await params
@@ -127,9 +127,9 @@ export async function PUT(request: NextRequest, { params }: RouteContext) {
  * Delete a game (soft delete by setting is_active = false)
  */
 export async function DELETE(_request: NextRequest, { params }: RouteContext) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Only admins can delete games
+  const result = await requireAdmin()
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
   const { id } = await params

@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS games (
   total_rounds INTEGER,
   round_state TEXT,
   next_trade_deadline TIMESTAMPTZ,
+  current_round_start TIMESTAMPTZ,
+  current_round_end TIMESTAMPTZ,
   sync_interval_minutes INTEGER NOT NULL DEFAULT 60,
   last_synced_at TIMESTAMPTZ,
   swush_game_id INTEGER,
@@ -258,6 +260,108 @@ CREATE POLICY "Service role full access to game_triggers" ON game_triggers
 
 CREATE POLICY "Service role full access to trigger_logs" ON trigger_logs
   FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
+-- ============================================
+-- APP_USERS TABLE
+-- Invite-only access and role management
+-- ============================================
+CREATE TABLE IF NOT EXISTS app_users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT UNIQUE NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  auth_user_id UUID UNIQUE,
+  invited_by UUID,
+  display_name TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  last_login_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_users_email ON app_users(email);
+CREATE INDEX IF NOT EXISTS idx_app_users_auth_user_id ON app_users(auth_user_id);
+CREATE INDEX IF NOT EXISTS idx_app_users_role ON app_users(role);
+
+-- Apply trigger to app_users table
+DROP TRIGGER IF EXISTS update_app_users_updated_at ON app_users;
+CREATE TRIGGER update_app_users_updated_at
+  BEFORE UPDATE ON app_users
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- RLS for app_users
+ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated can read app_users" ON app_users
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Admins can manage app_users" ON app_users
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM app_users au
+      WHERE au.auth_user_id = auth.uid()
+      AND au.role = 'admin'
+      AND au.is_active = true
+    )
+  );
+
+CREATE POLICY "Service role full access to app_users" ON app_users
+  FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
+-- Helper functions for RLS
+CREATE OR REPLACE FUNCTION is_app_admin()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM app_users
+    WHERE auth_user_id = auth.uid()
+    AND role = 'admin'
+    AND is_active = true
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION is_app_user()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM app_users
+    WHERE auth_user_id = auth.uid()
+    AND is_active = true
+  );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- ============================================
+-- ROUND_INTROS TABLE
+-- AI-generated round preview content
+-- ============================================
+CREATE TABLE IF NOT EXISTS round_intros (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  round_number INTEGER NOT NULL,
+  intro_text TEXT NOT NULL,
+  articles_used JSONB DEFAULT '[]'::jsonb,
+  vespa_query TEXT,
+  model_used TEXT,
+  generated_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(game_id, round_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_round_intros_game_round ON round_intros(game_id, round_number);
+
+ALTER TABLE round_intros ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access to round_intros" ON round_intros
+  FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Authenticated can read round_intros" ON round_intros
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+-- Apply trigger to round_intros table
+DROP TRIGGER IF EXISTS update_round_intros_updated_at ON round_intros;
+CREATE TRIGGER update_round_intros_updated_at
+  BEFORE UPDATE ON round_intros
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
 -- DONE

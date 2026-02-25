@@ -19,8 +19,12 @@ import {
   Users,
   Trophy,
   Layers,
+  Sparkles,
+  FileText,
+  RotateCw,
 } from 'lucide-react'
-import { Game, SyncLog, GameTrigger } from '@/types'
+import { Game, SyncLog, GameTrigger, RoundIntro } from '@/types'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -67,9 +71,11 @@ const liquidTags = [
   { category: 'Trending', tag: '{{response.data.trending.hot}}', description: 'Array of top 5 trending players (name, team, trend)' },
   { category: 'Trending', tag: '{{response.data.trending.falling}}', description: 'Array of 5 falling players (name, team, trend)' },
   { category: 'Lineup', tag: '{{response.data.lineup}}', description: 'Array of lineup players with name, team, trend, value, growth, is_injured, is_suspended' },
+  { category: 'AI Content', tag: '{{response.data.round_intro}}', description: 'AI-generated round intro text (Swedish, Aftonbladet style)' },
 ]
 
 export default function GameDetailPage() {
+  const { isAdmin } = useAuth()
   const params = useParams()
   const [game, setGame] = useState<GameWithDetails | null>(null)
   const [loading, setLoading] = useState(true)
@@ -85,6 +91,13 @@ export default function GameDetailPage() {
     braze_campaign_id: '',
   })
 
+  // Round intro state
+  const [roundIntro, setRoundIntro] = useState<RoundIntro | null>(null)
+  const [introLoading, setIntroLoading] = useState(false)
+  const [introGenerating, setIntroGenerating] = useState(false)
+  const [introError, setIntroError] = useState<string | null>(null)
+  const [showArticleSources, setShowArticleSources] = useState(false)
+
   const fetchGame = useCallback(async () => {
     try {
       const res = await fetch(`/api/admin/games/${params.id}`)
@@ -99,11 +112,48 @@ export default function GameDetailPage() {
     }
   }, [params.id])
 
+  const fetchRoundIntro = useCallback(async () => {
+    setIntroLoading(true)
+    try {
+      const res = await fetch(`/api/admin/games/${params.id}/round-intro`)
+      const data = await res.json()
+      if (data.success && data.data) {
+        setRoundIntro(data.data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch round intro:', error)
+    } finally {
+      setIntroLoading(false)
+    }
+  }, [params.id])
+
+  const handleGenerateIntro = async () => {
+    setIntroGenerating(true)
+    setIntroError(null)
+    try {
+      const res = await fetch(`/api/admin/games/${params.id}/round-intro`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (data.success && data.data) {
+        setRoundIntro(data.data)
+      } else {
+        setIntroError(data.error || 'Failed to generate intro')
+      }
+    } catch (error) {
+      console.error('Failed to generate round intro:', error)
+      setIntroError(error instanceof Error ? error.message : 'Network error')
+    } finally {
+      setIntroGenerating(false)
+    }
+  }
+
   useEffect(() => {
     if (params.id) {
       fetchGame()
+      fetchRoundIntro()
     }
-  }, [params.id, fetchGame])
+  }, [params.id, fetchGame, fetchRoundIntro])
 
   const handleSync = async () => {
     setSyncState('syncing')
@@ -263,15 +313,17 @@ export default function GameDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              icon={Code}
-              onClick={handleDebug}
-              disabled={debugging}
-              size="sm"
-            >
-              {debugging ? 'Debugging...' : 'Debug Sync'}
-            </Button>
+            {isAdmin && (
+              <Button
+                variant="ghost"
+                icon={Code}
+                onClick={handleDebug}
+                disabled={debugging}
+                size="sm"
+              >
+                {debugging ? 'Debugging...' : 'Debug Sync'}
+              </Button>
+            )}
             <SyncButton state={syncState} onClick={handleSync} />
           </div>
         </div>
@@ -425,6 +477,138 @@ export default function GameDetailPage() {
         </motion.div>
       )}
 
+      {/* Round Intro Section */}
+      <Card className="mb-8 overflow-hidden">
+        <div className="px-6 py-4 border-b border-ink-600/20 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-solar" />
+            <h2 className="text-lg font-heading font-semibold text-ink-50">Omgångsintro</h2>
+            {roundIntro && (
+              <Badge color="ocean">Omgång {roundIntro.round_number}</Badge>
+            )}
+          </div>
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={roundIntro ? RotateCw : Sparkles}
+              onClick={handleGenerateIntro}
+              disabled={introGenerating}
+            >
+              {introGenerating ? 'Genererar...' : roundIntro ? 'Regenerera' : 'Generera intro'}
+            </Button>
+          )}
+        </div>
+
+        <div className="p-6">
+          {/* Loading state */}
+          {introLoading && !roundIntro && (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-2 border-ink-600 border-t-ocean" />
+            </div>
+          )}
+
+          {/* Generating skeleton */}
+          <AnimatePresence>
+            {introGenerating && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="space-y-3 mb-4"
+              >
+                <div className="flex items-center gap-2 text-sm text-solar">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                  >
+                    <Sparkles className="w-4 h-4" />
+                  </motion.div>
+                  <span>AI genererar omgångsintro...</span>
+                </div>
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-4 bg-ink-700/40 rounded animate-pulse" style={{ width: `${100 - i * 15}%` }} />
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Error state */}
+          {introError && (
+            <div className="p-4 bg-punch/10 border border-punch/20 rounded-xl mb-4">
+              <div className="flex items-start gap-2">
+                <XCircle className="w-4 h-4 text-punch mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-punch">{introError}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Intro content */}
+          {roundIntro && !introGenerating ? (
+            <div className="space-y-4">
+              <div className="prose prose-invert prose-sm max-w-none">
+                {roundIntro.intro_text.split('\n').map((paragraph, i) => (
+                  paragraph.trim() ? <p key={i} className="text-ink-200 leading-relaxed">{paragraph}</p> : null
+                ))}
+              </div>
+
+              {/* Meta info */}
+              <div className="flex items-center gap-4 text-xs text-ink-500 pt-2 border-t border-ink-600/20">
+                <span>Genererad: {new Date(roundIntro.generated_at).toLocaleString('sv-SE')}</span>
+                {roundIntro.model_used && <span>{roundIntro.model_used}</span>}
+              </div>
+
+              {/* Article sources */}
+              {roundIntro.articles_used && roundIntro.articles_used.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setShowArticleSources(!showArticleSources)}
+                    className="inline-flex items-center gap-1.5 text-xs text-ink-400 hover:text-ink-200 transition-colors"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    {showArticleSources ? 'Dölj' : 'Visa'} artikelkällor ({roundIntro.articles_used.length})
+                    {showArticleSources ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
+                  <AnimatePresence>
+                    {showArticleSources && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-2 space-y-1.5">
+                          {roundIntro.articles_used.map((article, i) => (
+                            <div
+                              key={article.article_id || i}
+                              className="flex items-start gap-2 text-xs py-1.5 px-3 bg-ink-700/20 rounded-lg"
+                            >
+                              <span className="text-ink-500 font-mono mt-0.5">{(article.relevance ?? 0).toFixed(2)}</span>
+                              <span className="text-ink-300">{article.title}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              )}
+            </div>
+          ) : !introLoading && !introGenerating && (
+            <div className="text-center py-8 text-ink-500">
+              <Sparkles className="w-8 h-8 mx-auto mb-3 opacity-30" />
+              <p>Ingen omgångsintro genererad för denna omgång.</p>
+              {isAdmin && (
+                <p className="text-sm mt-1">Klicka &quot;Generera intro&quot; för att skapa en AI-genererad omgångspreview.</p>
+              )}
+            </div>
+          )}
+        </div>
+      </Card>
+
       {/* Braze Integration Section */}
       <Card className="mb-8 overflow-hidden">
         <div className="px-6 py-4 border-b border-ink-600/20">
@@ -524,14 +708,16 @@ export default function GameDetailPage() {
             <Bell className="w-5 h-5 text-solar" />
             <h2 className="text-lg font-heading font-semibold text-ink-50">Braze Triggers</h2>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={Plus}
-            onClick={() => setShowTriggerForm(!showTriggerForm)}
-          >
-            Add Trigger
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Plus}
+              onClick={() => setShowTriggerForm(!showTriggerForm)}
+            >
+              Add Trigger
+            </Button>
+          )}
         </div>
 
         <AnimatePresence>
@@ -609,14 +795,16 @@ export default function GameDetailPage() {
                   <Badge color={trigger.is_active ? 'mint' : 'ink'}>
                     {trigger.is_active ? 'Active' : 'Inactive'}
                   </Badge>
-                  <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleDeleteTrigger(trigger.id)}
-                    className="p-2 text-ink-500 hover:text-punch transition-colors rounded-lg hover:bg-punch/10"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </motion.button>
+                  {isAdmin && (
+                    <motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => handleDeleteTrigger(trigger.id)}
+                      className="p-2 text-ink-500 hover:text-punch transition-colors rounded-lg hover:bg-punch/10"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </motion.button>
+                  )}
                 </div>
               </motion.div>
             ))
