@@ -38,47 +38,67 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Only sync ONE game per cron run to spread load over time.
-    // Cron runs every 15 min, so games naturally stagger ~15 min apart.
-    const game = gamesDue[0]!  // Safe: we checked gamesDue.length > 0 above
-
+    // Sync ALL due games in one cron run (runs every 4 hours).
+    // With page size 5000, each game uses ~3 API calls.
+    // Budget: 6 runs × 3 games × 3 calls = 54/day (well under 100 limit).
     log.cron.info({
       gamesDue: gamesDue.length,
-      syncing: { key: game.game_key, name: game.name },
-      queued: gamesDue.slice(1).map(g => ({ key: g.game_key, name: g.name })),
-    }, `Syncing 1 of ${gamesDue.length} due games`)
+      games: gamesDue.map(g => ({ key: g.game_key, name: g.name })),
+    }, `Syncing ${gamesDue.length} due games`)
 
-    const result = await syncService.syncGame(game, 'scheduled')
-    const jobDuration = Date.now() - jobStartTime
+    const results: Array<{
+      gameKey: string
+      success: boolean
+      usersSynced: number
+      elementsSynced: number
+      error?: string
+    }> = []
 
-    if (result.success) {
-      log.cron.info({
+    for (let i = 0; i < gamesDue.length; i++) {
+      const game = gamesDue[i]!
+
+      // Add 2-second delay between games to respect 1 req/sec rate limit
+      if (i > 0) {
+        log.cron.debug(`Waiting 2s before syncing next game (${game.game_key})`)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+
+      const result = await syncService.syncGame(game, 'scheduled')
+      results.push({
         gameKey: game.game_key,
-        usersSynced: result.usersSynced,
-        elementsSynced: result.elementsSynced,
-        durationMs: jobDuration,
-        remainingGames: gamesDue.length - 1,
-      }, 'Sync job completed successfully')
-    } else {
-      log.cron.warn({
-        gameKey: game.game_key,
+        success: result.success,
+        usersSynced: result.usersSynced || 0,
+        elementsSynced: result.elementsSynced || 0,
         error: result.error,
-        durationMs: jobDuration,
-        remainingGames: gamesDue.length - 1,
-      }, 'Sync job completed with failure')
+      })
     }
 
-    return jsonResponse({
-      success: result.success,
-      message: result.success
-        ? `Synced ${game.game_key} successfully`
-        : `Failed to sync ${game.game_key}: ${result.error}`,
-      gamesSynced: result.success ? 1 : 0,
-      gamesDueTotal: gamesDue.length,
-      gamesRemaining: gamesDue.length - 1,
-      usersSynced: result.usersSynced || 0,
-      elementsSynced: result.elementsSynced || 0,
+    const jobDuration = Date.now() - jobStartTime
+    const successCount = results.filter(r => r.success).length
+    const totalUsers = results.reduce((sum, r) => sum + r.usersSynced, 0)
+    const totalElements = results.reduce((sum, r) => sum + r.elementsSynced, 0)
+    const allSuccess = successCount === results.length
+
+    log.cron.info({
+      gamesSynced: successCount,
+      gamesFailed: results.length - successCount,
+      totalUsers,
+      totalElements,
       durationMs: jobDuration,
+      results,
+    }, `Sync job completed: ${successCount}/${results.length} games synced`)
+
+    return jsonResponse({
+      success: allSuccess,
+      message: allSuccess
+        ? `Synced ${successCount} games successfully`
+        : `Synced ${successCount}/${results.length} games (${results.length - successCount} failed)`,
+      gamesSynced: successCount,
+      gamesDueTotal: gamesDue.length,
+      usersSynced: totalUsers,
+      elementsSynced: totalElements,
+      durationMs: jobDuration,
+      results,
       timestamp: new Date().toISOString(),
     })
   } catch (error) {

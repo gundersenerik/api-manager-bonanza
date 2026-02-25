@@ -51,6 +51,24 @@ export interface SwushUser {
   userteams: SwushUserteam[]
 }
 
+export interface SwushUserteamCompact {
+  name: string
+  rankByValue: number
+  rankByGrowth: number
+  score: number
+  growth: number
+}
+
+export interface SwushCompetition {
+  id: number
+  name: string
+  key: string
+  url: string
+  teams: number
+  byValue: SwushUserteamCompact[]
+  byGrowth: SwushUserteamCompact[]
+}
+
 export interface SwushGameResponse {
   gameId: number
   tournamentId: number
@@ -66,7 +84,7 @@ export interface SwushGameResponse {
     byTrend: SwushElement[]
     byTrendReverse: SwushElement[]
   }
-  competitions: any[]
+  competitions: SwushCompetition[]
 }
 
 export interface SwushUsersResponse {

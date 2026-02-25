@@ -7,6 +7,7 @@ import {
   SwushElement,
   SwushUser,
   SwushRound,
+  SwushCompetition,
 } from '@/types'
 
 // Configuration constants
@@ -146,16 +147,52 @@ export class SyncService {
       return { success: false, error: error.message }
     }
 
+    // Upsert competitions (already in game response — zero extra API calls)
+    if (swushGame.competitions && swushGame.competitions.length > 0) {
+      await this.upsertCompetitions(game.id, swushGame.competitions)
+    }
+
     return { success: true, gamesSynced: 1 }
+  }
+
+  /**
+   * Upsert competition data from the game response
+   * Competitions come for free in the game details — no extra API calls
+   */
+  private async upsertCompetitions(gameId: string, competitions: SwushCompetition[]): Promise<void> {
+    const upsertData = competitions.map((comp) => ({
+      game_id: gameId,
+      competition_id: comp.id,
+      name: comp.name,
+      key: comp.key,
+      url: comp.url || null,
+      teams_count: comp.teams || 0,
+      top_by_value: JSON.stringify((comp.byValue || []).slice(0, 10)),
+      top_by_growth: JSON.stringify((comp.byGrowth || []).slice(0, 10)),
+      updated_at: new Date().toISOString(),
+    }))
+
+    const { error } = await this.supabase
+      .from('competitions')
+      .upsert(upsertData, {
+        onConflict: 'game_id,competition_id',
+      })
+
+    if (error) {
+      // Non-fatal — log and continue, don't fail the sync
+      log.sync.warn({ err: error, gameId, count: competitions.length }, 'Failed to upsert competitions')
+    } else {
+      log.sync.debug({ gameId, count: competitions.length }, 'Upserted competitions')
+    }
   }
 
   /**
    * Sync all elements (players) for a game
    */
   async syncElements(game: Game): Promise<SyncResult> {
-    log.sync.info({ gameKey: game.game_key, subsiteKey: game.subsite_key }, 'Syncing elements')
+    log.sync.info({ gameKey: game.game_key, subsiteKey: game.subsite_key, round: game.current_round }, 'Syncing elements')
 
-    const response = await this.swush.getElements(game.subsite_key, game.game_key)
+    const response = await this.swush.getElements(game.subsite_key, game.game_key, game.current_round || undefined)
 
     if (response.error || !response.data) {
       log.sync.error({
@@ -217,10 +254,11 @@ export class SyncService {
     game: Game,
     onProgress?: (current: number, total: number) => void
   ): Promise<SyncResult> {
-    log.sync.info({ gameKey: game.game_key }, 'Syncing users with progressive saving')
+    const round = game.current_round || undefined
+    log.sync.info({ gameKey: game.game_key, round }, 'Syncing users with progressive saving')
 
     // First request to get total pages
-    const firstResponse = await this.swush.getUsers(game.subsite_key, game.game_key, 1)
+    const firstResponse = await this.swush.getUsers(game.subsite_key, game.game_key, 1, undefined, true, round)
 
     if (firstResponse.error || !firstResponse.data) {
       return { success: false, error: firstResponse.error || 'Failed to fetch users' }
@@ -247,7 +285,7 @@ export class SyncService {
     // Fetch and save remaining pages
     let rateLimitAborted = false
     for (let page = 2; page <= totalPages; page++) {
-      const response = await this.swush.getUsers(game.subsite_key, game.game_key, page)
+      const response = await this.swush.getUsers(game.subsite_key, game.game_key, page, undefined, true, round)
 
       // Abort immediately on rate limit — don't keep hammering SWUSH
       if (response.status === 429) {
@@ -284,8 +322,8 @@ export class SyncService {
 
       onProgress?.(page, totalPages)
 
-      // Delay between page requests to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500))
+      // Delay between page requests — SWUSH allows max 1 req/sec
+      await new Promise(resolve => setTimeout(resolve, 1100))
     }
 
     // Log summary
@@ -432,6 +470,9 @@ export class SyncService {
       }
       log.sync.debug({ gameKey: game.game_key, durationMs: gameDetailDuration }, 'Game details synced')
 
+      // Respect SWUSH 1 req/sec rate limit between sync steps
+      await new Promise(resolve => setTimeout(resolve, 1100))
+
       // Sync elements
       const elementsStart = Date.now()
       const elementsResult = await this.syncElements(game)
@@ -452,6 +493,9 @@ export class SyncService {
         durationMs: elementsDuration,
         count: elementsResult.elementsSynced,
       }, 'Elements synced')
+
+      // Respect SWUSH 1 req/sec rate limit between sync steps
+      await new Promise(resolve => setTimeout(resolve, 1100))
 
       // Sync users
       const usersStart = Date.now()

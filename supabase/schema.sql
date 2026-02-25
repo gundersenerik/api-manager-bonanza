@@ -478,5 +478,41 @@ CREATE TRIGGER update_notification_preferences_updated_at
   EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
+-- COMPETITIONS TABLE
+-- League/competition standings from SWUSH
+-- (comes free in game details response)
+-- ============================================
+CREATE TABLE IF NOT EXISTS competitions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  competition_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  key TEXT NOT NULL,
+  url TEXT,
+  teams_count INTEGER DEFAULT 0,
+  top_by_value JSONB DEFAULT '[]',
+  top_by_growth JSONB DEFAULT '[]',
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(game_id, competition_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_competitions_game_id ON competitions(game_id);
+
+ALTER TABLE competitions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access to competitions" ON competitions
+  FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Authenticated can read competitions" ON competitions
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+-- Apply auto-update trigger for updated_at
+DROP TRIGGER IF EXISTS update_competitions_updated_at ON competitions;
+CREATE TRIGGER update_competitions_updated_at
+  BEFORE UPDATE ON competitions
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
 -- DONE
 -- ============================================

@@ -7,10 +7,49 @@ import { log } from '@/lib/logger'
 
 // Configuration constants
 const DEFAULT_TIMEOUT_MS = 30000 // 30 seconds
-const RATE_LIMIT_DELAY_MS = 500 // Delay between paginated requests to avoid rate limiting
-const MAX_PAGE_SIZE = 10 // SWUSH API maximum page size
+const RATE_LIMIT_DELAY_MS = 1100 // Just over 1 second — SWUSH allows max 1 req/sec
+const MAX_PAGE_SIZE = 5000 // SWUSH API max page size (confirmed in Swagger docs)
 const MAX_RETRIES = 3 // Number of retries for failed requests
 const RETRY_BASE_DELAY_MS = 1000 // Base delay for exponential backoff (1s, 2s, 4s)
+
+// Daily request budget — SWUSH limits to 100 requests/day
+const DAILY_BUDGET_LIMIT = 90 // Reserve 10 for manual syncs
+const DAILY_BUDGET_WARN = 75 // Log warnings above this threshold
+
+/**
+ * In-memory daily API request counter.
+ * Resets on new UTC day (and on deploy/cold start — acceptable as a safety net).
+ */
+const dailyBudget = {
+  date: new Date().toISOString().slice(0, 10), // YYYY-MM-DD in UTC
+  count: 0,
+
+  /** Increment counter, returns false if budget exhausted */
+  consume(): boolean {
+    const today = new Date().toISOString().slice(0, 10)
+    if (today !== this.date) {
+      // New day — reset counter
+      log.swush.info({ previousDate: this.date, previousCount: this.count }, '[SWUSH] Daily budget reset')
+      this.date = today
+      this.count = 0
+    }
+    this.count++
+    if (this.count > DAILY_BUDGET_LIMIT) {
+      return false // Budget exhausted
+    }
+    if (this.count >= DAILY_BUDGET_WARN) {
+      log.swush.warn({ count: this.count, limit: DAILY_BUDGET_LIMIT }, '[SWUSH] Daily budget running low')
+    }
+    return true
+  },
+
+  /** Get current count (for logging/debugging) */
+  getCount(): number {
+    const today = new Date().toISOString().slice(0, 10)
+    if (today !== this.date) return 0
+    return this.count
+  },
+}
 
 interface SwushClientConfig {
   baseUrl: string
@@ -85,13 +124,24 @@ export class SwushClient {
    * Make a request to the SWUSH API
    */
   private async request<T>(endpoint: string): Promise<SwushApiResponse<T>> {
+    // Check daily budget before making the request
+    if (!dailyBudget.consume()) {
+      const msg = `Daily API budget exhausted (${dailyBudget.getCount()}/${DAILY_BUDGET_LIMIT} requests). Resets at midnight UTC.`
+      log.swush.error({ count: dailyBudget.getCount(), limit: DAILY_BUDGET_LIMIT }, `[SWUSH] ${msg}`)
+      return {
+        data: null,
+        error: msg,
+        status: 429,
+      }
+    }
+
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), this.timeout)
     const url = `${this.baseUrl}${endpoint}`
     const startTime = Date.now()
 
     try {
-      log.swush.debug({ url }, '[SWUSH] Fetching')
+      log.swush.debug({ url, dailyRequestCount: dailyBudget.getCount() }, '[SWUSH] Fetching')
 
       const response = await fetch(url, {
         method: 'GET',
@@ -288,41 +338,48 @@ export class SwushClient {
   /**
    * Get all elements (players) for a game
    * Uses retry logic — element data is critical for sync
+   * @param round - Optional round number. Defaults to latest ended round if omitted.
    */
-  async getElements(subsiteKey: string, gameKey: string): Promise<SwushApiResponse<SwushElement[]>> {
+  async getElements(subsiteKey: string, gameKey: string, round?: number): Promise<SwushApiResponse<SwushElement[]>> {
+    const roundParam = round != null ? `?round=${round}` : ''
     return this.requestWithRetry<SwushElement[]>(
-      `/season/subsites/${subsiteKey}/games/${gameKey}/elements`
+      `/season/subsites/${subsiteKey}/games/${gameKey}/elements${roundParam}`
     )
   }
 
   /**
    * Get users for a game (paginated) - with retry logic
+   * @param round - Optional round number. Defaults to latest ended round if omitted.
    */
   async getUsers(
     subsiteKey: string,
     gameKey: string,
     page: number = 1,
     pageSize: number = MAX_PAGE_SIZE,
-    includeUserteams: boolean = true
+    includeUserteams: boolean = true,
+    round?: number
   ): Promise<SwushApiResponse<SwushUsersResponse>> {
     // SWUSH API has a maximum page size limit
     const actualPageSize = Math.min(pageSize, MAX_PAGE_SIZE)
+    const roundParam = round != null ? `&round=${round}` : ''
     return this.requestWithRetry<SwushUsersResponse>(
-      `/season/subsites/${subsiteKey}/games/${gameKey}/users?includeUserteams=${includeUserteams}&includeLineups=false&page=${page}&pageSize=${actualPageSize}`
+      `/season/subsites/${subsiteKey}/games/${gameKey}/users?includeUserteams=${includeUserteams}&includeLineups=true&page=${page}&pageSize=${actualPageSize}${roundParam}`
     )
   }
 
   /**
    * Get all users for a game (handles pagination automatically)
    * Warning: This can be slow for games with many users
+   * @param round - Optional round number. Defaults to latest ended round if omitted.
    */
   async getAllUsers(
     subsiteKey: string,
     gameKey: string,
-    onProgress?: (page: number, totalPages: number) => void
+    onProgress?: (page: number, totalPages: number) => void,
+    round?: number
   ): Promise<SwushApiResponse<SwushUsersResponse>> {
     // First request to get total pages
-    const firstResponse = await this.getUsers(subsiteKey, gameKey, 1, MAX_PAGE_SIZE)
+    const firstResponse = await this.getUsers(subsiteKey, gameKey, 1, MAX_PAGE_SIZE, true, round)
 
     if (firstResponse.error || !firstResponse.data) {
       return firstResponse
@@ -335,7 +392,7 @@ export class SwushClient {
 
     // Fetch remaining pages
     for (let page = 2; page <= totalPages; page++) {
-      const response = await this.getUsers(subsiteKey, gameKey, page, MAX_PAGE_SIZE)
+      const response = await this.getUsers(subsiteKey, gameKey, page, MAX_PAGE_SIZE, true, round)
 
       if (response.error || !response.data) {
         log.swush.error(`[SWUSH] Failed to fetch page ${page}: ${response.error}`)
