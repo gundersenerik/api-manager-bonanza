@@ -102,11 +102,18 @@ export class SyncService {
    * Sync game details from SWUSH
    */
   async syncGameDetails(game: Game): Promise<SyncResult> {
-    log.sync.info({ gameKey: game.game_key }, 'Syncing game details')
+    log.sync.info({ gameKey: game.game_key, subsiteKey: game.subsite_key }, 'Syncing game details')
 
     const response = await this.swush.getGame(game.subsite_key, game.game_key)
 
     if (response.error || !response.data) {
+      log.sync.error({
+        gameKey: game.game_key,
+        error: response.error,
+        status: response.status,
+        url: response.url,
+        durationMs: response.durationMs,
+      }, 'SWUSH getGame failed')
       return { success: false, error: response.error || 'Failed to fetch game' }
     }
 
@@ -146,11 +153,18 @@ export class SyncService {
    * Sync all elements (players) for a game
    */
   async syncElements(game: Game): Promise<SyncResult> {
-    log.sync.info({ gameKey: game.game_key }, 'Syncing elements')
+    log.sync.info({ gameKey: game.game_key, subsiteKey: game.subsite_key }, 'Syncing elements')
 
     const response = await this.swush.getElements(game.subsite_key, game.game_key)
 
     if (response.error || !response.data) {
+      log.sync.error({
+        gameKey: game.game_key,
+        error: response.error,
+        status: response.status,
+        url: response.url,
+        durationMs: response.durationMs,
+      }, 'SWUSH getElements failed')
       return { success: false, error: response.error || 'Failed to fetch elements' }
     }
 
@@ -352,7 +366,13 @@ export class SyncService {
     game: Game,
     syncType: 'manual' | 'scheduled' = 'manual'
   ): Promise<SyncResult> {
-    log.sync.info({ gameKey: game.game_key }, 'Starting full sync')
+    const syncStartTime = Date.now()
+    log.sync.info({
+      gameKey: game.game_key,
+      gameName: game.name,
+      syncType,
+      sportType: game.sport_type,
+    }, 'Starting full sync')
 
     // Create sync log
     const logId = await this.createSyncLog({
@@ -363,26 +383,71 @@ export class SyncService {
       elementsSynced: 0,
     })
 
+    // Track which step failed for detailed error context
+    let failedStep: 'game_details' | 'elements' | 'users' | null = null
+
     try {
       // Sync game details
+      const gameDetailStart = Date.now()
       const gameResult = await this.syncGameDetails(game)
+      const gameDetailDuration = Date.now() - gameDetailStart
+
       if (!gameResult.success) {
-        throw new Error(gameResult.error)
+        failedStep = 'game_details'
+        log.sync.error({
+          gameKey: game.game_key,
+          step: 'game_details',
+          durationMs: gameDetailDuration,
+          error: gameResult.error,
+        }, 'Sync failed at game details step')
+        throw new Error(`Game details sync failed: ${gameResult.error}`)
       }
+      log.sync.debug({ gameKey: game.game_key, durationMs: gameDetailDuration }, 'Game details synced')
 
       // Sync elements
+      const elementsStart = Date.now()
       const elementsResult = await this.syncElements(game)
+      const elementsDuration = Date.now() - elementsStart
+
       if (!elementsResult.success) {
-        throw new Error(elementsResult.error)
+        failedStep = 'elements'
+        log.sync.error({
+          gameKey: game.game_key,
+          step: 'elements',
+          durationMs: elementsDuration,
+          error: elementsResult.error,
+        }, 'Sync failed at elements step')
+        throw new Error(`Elements sync failed: ${elementsResult.error}`)
       }
+      log.sync.debug({
+        gameKey: game.game_key,
+        durationMs: elementsDuration,
+        count: elementsResult.elementsSynced,
+      }, 'Elements synced')
 
       // Sync users
+      const usersStart = Date.now()
       const usersResult = await this.syncUsers(game)
+      const usersDuration = Date.now() - usersStart
+
       if (!usersResult.success) {
-        throw new Error(usersResult.error)
+        failedStep = 'users'
+        log.sync.error({
+          gameKey: game.game_key,
+          step: 'users',
+          durationMs: usersDuration,
+          error: usersResult.error,
+        }, 'Sync failed at users step')
+        throw new Error(`Users sync failed: ${usersResult.error}`)
       }
+      log.sync.debug({
+        gameKey: game.game_key,
+        durationMs: usersDuration,
+        count: usersResult.usersSynced,
+      }, 'Users synced')
 
       // Update sync log
+      const totalDuration = Date.now() - syncStartTime
       if (logId) {
         await this.updateSyncLog(logId, {
           status: 'completed',
@@ -392,7 +457,18 @@ export class SyncService {
         })
       }
 
-      log.sync.info({ gameKey: game.game_key }, 'Completed sync')
+      log.sync.info({
+        gameKey: game.game_key,
+        gameName: game.name,
+        durationMs: totalDuration,
+        elementsSynced: elementsResult.elementsSynced,
+        usersSynced: usersResult.usersSynced,
+        stepDurations: {
+          gameDetails: gameDetailDuration,
+          elements: elementsDuration,
+          users: usersDuration,
+        },
+      }, 'Completed sync successfully')
 
       // Check if previous sync was a failure (recovery detection)
       try {
@@ -401,12 +477,13 @@ export class SyncService {
           .select('id')
           .eq('game_id', game.id)
           .eq('status', 'failed')
-          .order('created_at', { ascending: false })
+          .order('started_at', { ascending: false })
           .limit(1)
           .single()
 
         if (lastFailed) {
           // Previous sync failed — this is a recovery
+          log.sync.info({ gameKey: game.game_key }, 'Sync recovered from previous failure')
           await alertService.alertSyncRecovered(
             game.game_key,
             usersResult.usersSynced || 0,
@@ -424,14 +501,27 @@ export class SyncService {
         usersSynced: usersResult.usersSynced,
       }
     } catch (error) {
+      const totalDuration = Date.now() - syncStartTime
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      log.sync.error({ gameKey: game.game_key, error: errorMessage }, 'Failed sync')
 
-      // Update sync log with error
+      log.sync.error({
+        gameKey: game.game_key,
+        gameName: game.name,
+        syncType,
+        failedStep,
+        durationMs: totalDuration,
+        error: errorMessage,
+      }, `Sync failed at step: ${failedStep || 'unknown'}`)
+
+      // Update sync log with error — include step info in the message
+      const detailedError = failedStep
+        ? `[${failedStep}] ${errorMessage}`
+        : errorMessage
+
       if (logId) {
         await this.updateSyncLog(logId, {
           status: 'failed',
-          errorMessage,
+          errorMessage: detailedError,
           completedAt: new Date().toISOString(),
         })
       }
@@ -441,12 +531,12 @@ export class SyncService {
         type: 'sync_failure',
         gameKey: game.game_key,
         gameName: game.name,
-        error: errorMessage,
+        error: detailedError,
         timestamp: new Date().toISOString(),
         lastSuccessfulSync: game.last_synced_at || undefined,
       })
 
-      return { success: false, error: errorMessage }
+      return { success: false, error: detailedError }
     }
   }
 
