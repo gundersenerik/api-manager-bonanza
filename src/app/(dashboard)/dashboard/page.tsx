@@ -11,8 +11,10 @@ import {
   ArrowRight,
   Clock,
   Plus,
+  Flag,
 } from 'lucide-react'
 import { Game } from '@/types'
+import { isGameSeasonEnded } from '@/lib/game-utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { StatCard } from '@/components/ui/StatCard'
 import { Card } from '@/components/ui/Card'
@@ -20,7 +22,7 @@ import { Button } from '@/components/ui/Button'
 import { StatusDot } from '@/components/ui/StatusDot'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { LoadingScreen } from '@/components/ui/LoadingDots'
-import { SportBadge } from '@/components/ui/Badge'
+import { Badge, SportBadge } from '@/components/ui/Badge'
 
 interface DashboardStats {
   totalGames: number
@@ -164,10 +166,17 @@ export default function DashboardPage() {
                   className="group flex items-center justify-between p-6 hover:bg-ink-700/20 transition-all duration-200"
                 >
                   <div className="flex items-center gap-4">
-                    <StatusDot active={game.is_active} />
+                    {isGameSeasonEnded(game) ? (
+                      <Flag className="w-4 h-4 text-solar flex-shrink-0" />
+                    ) : (
+                      <StatusDot active={game.is_active} />
+                    )}
                     <div>
-                      <div className="font-medium text-ink-50 group-hover:text-electric-300 transition-colors">
+                      <div className={`font-medium group-hover:text-electric-300 transition-colors ${isGameSeasonEnded(game) ? 'text-ink-300' : 'text-ink-50'}`}>
                         {game.name}
+                        {isGameSeasonEnded(game) && (
+                          <Badge color="solar" icon={Flag} className="ml-2 align-middle">Season Ended</Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-sm text-ink-400 font-mono">

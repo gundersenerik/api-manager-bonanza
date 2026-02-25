@@ -8,14 +8,16 @@ import {
   Plus,
   AlertCircle,
   RefreshCw,
+  Flag,
 } from 'lucide-react'
 import { Game } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
+import { isGameSeasonEnded } from '@/lib/game-utils'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { StatusDot } from '@/components/ui/StatusDot'
-import { SportBadge } from '@/components/ui/Badge'
+import { Badge, SportBadge } from '@/components/ui/Badge'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { LoadingScreen } from '@/components/ui/LoadingDots'
 
@@ -169,12 +171,16 @@ export default function GamesPage() {
                       {formatDate(game.last_synced_at)}
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <StatusDot active={game.is_active} />
-                        <span className={`text-sm ${game.is_active ? 'text-mint' : 'text-ink-500'}`}>
-                          {game.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </div>
+                      {isGameSeasonEnded(game) ? (
+                        <Badge color="solar" icon={Flag}>Season Ended</Badge>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <StatusDot active={game.is_active} />
+                          <span className={`text-sm ${game.is_active ? 'text-mint' : 'text-ink-500'}`}>
+                            {game.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Link

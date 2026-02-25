@@ -22,8 +22,10 @@ import {
   Sparkles,
   FileText,
   RotateCw,
+  Flag,
 } from 'lucide-react'
 import { Game, SyncLog, GameTrigger, RoundIntro } from '@/types'
+import { isGameSeasonEnded } from '@/lib/game-utils'
 import { useAuth } from '@/contexts/AuthContext'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -306,10 +308,16 @@ export default function GameDetailPage() {
             <h1 className="text-2xl font-heading font-bold text-ink-50">{game.name}</h1>
             <div className="mt-1 flex items-center gap-3">
               <InlineCode>{game.game_key}</InlineCode>
-              <StatusDot active={game.is_active} />
-              <span className={`text-sm ${game.is_active ? 'text-mint' : 'text-ink-500'}`}>
-                {game.is_active ? 'Active' : 'Inactive'}
-              </span>
+              {isGameSeasonEnded(game) ? (
+                <Badge color="solar" icon={Flag}>Season Ended</Badge>
+              ) : (
+                <>
+                  <StatusDot active={game.is_active} />
+                  <span className={`text-sm ${game.is_active ? 'text-mint' : 'text-ink-500'}`}>
+                    {game.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -399,11 +407,11 @@ export default function GameDetailPage() {
         {[
           {
             label: 'Status',
-            value: game.is_active ? 'Active' : 'Inactive',
-            icon: game.is_active ? CheckCircle : XCircle,
-            color: game.is_active ? 'text-mint' : 'text-ink-500',
-            iconBg: game.is_active ? 'bg-mint/15' : 'bg-ink-700/50',
-            iconColor: game.is_active ? 'text-mint' : 'text-ink-500',
+            value: isGameSeasonEnded(game) ? 'Season Ended' : game.is_active ? 'Active' : 'Inactive',
+            icon: isGameSeasonEnded(game) ? Flag : game.is_active ? CheckCircle : XCircle,
+            color: isGameSeasonEnded(game) ? 'text-solar' : game.is_active ? 'text-mint' : 'text-ink-500',
+            iconBg: isGameSeasonEnded(game) ? 'bg-solar/15' : game.is_active ? 'bg-mint/15' : 'bg-ink-700/50',
+            iconColor: isGameSeasonEnded(game) ? 'text-solar' : game.is_active ? 'text-mint' : 'text-ink-500',
           },
           {
             label: 'Round',
@@ -453,8 +461,31 @@ export default function GameDetailPage() {
         ))}
       </div>
 
+      {/* Season Ended Banner */}
+      {isGameSeasonEnded(game) && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <div className="bg-gradient-to-r from-solar/15 to-solar/5 border border-solar/20 rounded-xl p-5">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-solar/15 rounded-lg">
+                <Flag className="w-5 h-5 text-solar" />
+              </div>
+              <div>
+                <p className="font-heading font-semibold text-solar">Season Ended</p>
+                <p className="text-sm text-ink-400 mt-0.5">
+                  All {game.total_rounds} rounds have been played. No more upcoming rounds or trade deadlines.
+                </p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       {/* Deadline Banner */}
-      {game.next_trade_deadline && (
+      {!isGameSeasonEnded(game) && game.next_trade_deadline && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
