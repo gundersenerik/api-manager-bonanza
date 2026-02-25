@@ -33,6 +33,17 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
       return errorResponse('Game not found', 404)
     }
 
+    // Throttle manual syncs — 5 minute cooldown to avoid hammering SWUSH
+    if (game.last_synced_at) {
+      const minutesSinceSync = (Date.now() - new Date(game.last_synced_at).getTime()) / 60000
+      if (minutesSinceSync < 5) {
+        return errorResponse(
+          `Game was synced ${Math.round(minutesSinceSync)} minutes ago. Please wait at least 5 minutes between syncs.`,
+          429
+        )
+      }
+    }
+
     log.sync.info({ gameKey: game.game_key }, 'Manual sync triggered')
 
     // Run the sync
