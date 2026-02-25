@@ -364,5 +364,118 @@ CREATE TRIGGER update_round_intros_updated_at
   EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
+-- ACTIVITY_LOG TABLE
+-- Audit trail for admin actions
+-- ============================================
+CREATE TABLE IF NOT EXISTS activity_log (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  actor_id UUID REFERENCES app_users(id) ON DELETE SET NULL,
+  actor_email TEXT,
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL CHECK (entity_type IN ('game', 'trigger', 'user', 'settings', 'sync', 'round_intro')),
+  entity_id TEXT,
+  entity_name TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_log_entity_type ON activity_log(entity_type);
+CREATE INDEX IF NOT EXISTS idx_activity_log_actor_id ON activity_log(actor_id);
+
+ALTER TABLE activity_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access to activity_log" ON activity_log
+  FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Admin full access to activity_log" ON activity_log
+  FOR ALL USING (is_admin());
+
+-- ============================================
+-- NOTIFICATIONS TABLE
+-- In-app notification feed for team members
+-- ============================================
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL CHECK (event_type IN (
+    'sync_failure', 'sync_recovered', 'trigger_failure', 'trigger_fired',
+    'round_started', 'round_ended', 'season_ended'
+  )),
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'info' CHECK (severity IN ('info', 'warning', 'error')),
+  game_id UUID REFERENCES games(id) ON DELETE SET NULL,
+  game_name TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, is_read, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notifications_game_id ON notifications(game_id);
+
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access to notifications" ON notifications
+  FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Users can read own notifications" ON notifications
+  FOR SELECT USING (
+    user_id IN (
+      SELECT id FROM app_users WHERE auth_user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can update own notifications" ON notifications
+  FOR UPDATE USING (
+    user_id IN (
+      SELECT id FROM app_users WHERE auth_user_id = auth.uid()
+    )
+  );
+
+-- ============================================
+-- NOTIFICATION_PREFERENCES TABLE
+-- Per-user, per-event-type channel preferences
+-- ============================================
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+  event_type TEXT NOT NULL CHECK (event_type IN (
+    'sync_failure', 'sync_recovered', 'trigger_failure', 'trigger_fired',
+    'round_started', 'round_ended', 'season_ended'
+  )),
+  in_app BOOLEAN NOT NULL DEFAULT TRUE,
+  slack BOOLEAN NOT NULL DEFAULT TRUE,
+  email BOOLEAN NOT NULL DEFAULT FALSE,
+  muted_game_ids UUID[] DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, event_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_prefs_user ON notification_preferences(user_id);
+
+ALTER TABLE notification_preferences ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access to notification_preferences" ON notification_preferences
+  FOR ALL USING (auth.jwt() ->> 'role' = 'service_role');
+
+CREATE POLICY "Users can manage own preferences" ON notification_preferences
+  FOR ALL USING (
+    user_id IN (
+      SELECT id FROM app_users WHERE auth_user_id = auth.uid()
+    )
+  );
+
+-- Apply trigger to notification_preferences table
+DROP TRIGGER IF EXISTS update_notification_preferences_updated_at ON notification_preferences;
+CREATE TRIGGER update_notification_preferences_updated_at
+  BEFORE UPDATE ON notification_preferences
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
 -- DONE
 -- ============================================

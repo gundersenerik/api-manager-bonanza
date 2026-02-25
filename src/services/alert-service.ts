@@ -1,8 +1,10 @@
 import { log } from '@/lib/logger'
+import { notificationService } from '@/services/notification-service'
 
 /**
  * Alert Service
- * Sends alerts to configured webhook for sync failures and other critical events
+ * Sends alerts to configured webhook for sync failures and other critical events.
+ * Also dispatches in-app notifications via notificationService.
  */
 
 interface SyncFailureAlert {
@@ -172,6 +174,22 @@ class AlertService {
 
     // Try Slack format first (works with Slack incoming webhooks)
     await this.sendSlackAlert(payload)
+
+    // Dispatch in-app notification
+    await notificationService.dispatch({
+      event_type: 'sync_failure',
+      title: `Sync Failed: ${alert.gameName || alert.gameKey}`,
+      message: alert.error,
+      severity: 'error',
+      game_id: undefined,
+      game_name: alert.gameName,
+      metadata: {
+        game_key: alert.gameKey,
+        failed_pages: alert.failedPages,
+        total_pages: alert.totalPages,
+        users_synced: alert.usersSynced,
+      },
+    }).catch(err => log.sync.error({ err }, 'Failed to dispatch sync_failure notification'))
   }
 
   /**
@@ -195,7 +213,7 @@ class AlertService {
   /**
    * Alert when sync recovers after failure
    */
-  async alertSyncRecovered(gameKey: string, usersSynced: number): Promise<void> {
+  async alertSyncRecovered(gameKey: string, usersSynced: number, gameName?: string): Promise<void> {
     const payload: AlertPayload = {
       event: 'Sync Recovered',
       severity: 'info',
@@ -208,6 +226,16 @@ class AlertService {
     }
 
     await this.sendSlackAlert(payload)
+
+    // Dispatch in-app notification
+    await notificationService.dispatch({
+      event_type: 'sync_recovered',
+      title: `Sync Recovered: ${gameName || gameKey}`,
+      message: `Sync is back to normal. ${usersSynced} users synced successfully.`,
+      severity: 'info',
+      game_name: gameName || gameKey,
+      metadata: { game_key: gameKey, users_synced: usersSynced },
+    }).catch(err => log.sync.error({ err }, 'Failed to dispatch sync_recovered notification'))
   }
 }
 

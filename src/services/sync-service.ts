@@ -394,6 +394,29 @@ export class SyncService {
 
       log.sync.info({ gameKey: game.game_key }, 'Completed sync')
 
+      // Check if previous sync was a failure (recovery detection)
+      try {
+        const { data: lastFailed } = await this.supabase
+          .from('sync_logs')
+          .select('id')
+          .eq('game_id', game.id)
+          .eq('status', 'failed')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        if (lastFailed) {
+          // Previous sync failed — this is a recovery
+          await alertService.alertSyncRecovered(
+            game.game_key,
+            usersResult.usersSynced || 0,
+            game.name
+          )
+        }
+      } catch {
+        // No previous failure found — not a recovery, ignore
+      }
+
       return {
         success: true,
         gamesSynced: 1,
