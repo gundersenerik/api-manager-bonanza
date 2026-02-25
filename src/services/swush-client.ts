@@ -7,7 +7,7 @@ import { log } from '@/lib/logger'
 
 // Configuration constants
 const DEFAULT_TIMEOUT_MS = 30000 // 30 seconds
-const RATE_LIMIT_DELAY_MS = 100 // Delay between paginated requests to avoid rate limiting
+const RATE_LIMIT_DELAY_MS = 500 // Delay between paginated requests to avoid rate limiting
 const MAX_PAGE_SIZE = 10 // SWUSH API maximum page size
 const MAX_RETRIES = 3 // Number of retries for failed requests
 const RETRY_BASE_DELAY_MS = 1000 // Base delay for exponential backoff (1s, 2s, 4s)
@@ -26,6 +26,8 @@ interface SwushApiResponse<T> {
   url?: string
   /** How long the request took in ms */
   durationMs?: number
+  /** Retry-After header value from rate limit responses (seconds) */
+  retryAfterSeconds?: number
 }
 
 /**
@@ -106,10 +108,16 @@ export class SwushClient {
 
       if (!response.ok) {
         const errorText = await response.text()
+
+        // Capture Retry-After header for rate limit responses
+        const retryAfterHeader = response.headers.get('Retry-After')
+        const retryAfterSeconds = retryAfterHeader ? parseInt(retryAfterHeader, 10) : undefined
+
         log.swush.error({
           url,
           status: response.status,
           durationMs,
+          retryAfterSeconds,
           responseBody: errorText.substring(0, 500),
         }, `[SWUSH] HTTP error ${response.status}`)
         return {
@@ -118,6 +126,7 @@ export class SwushClient {
           status: response.status,
           url,
           durationMs,
+          retryAfterSeconds,
         }
       }
 
@@ -214,12 +223,21 @@ export class SwushClient {
 
       lastResponse = response
 
-      // Don't retry on client errors (4xx) except 408 (timeout) and 429 (rate limit)
+      // Don't retry on client errors (4xx) except 408 (timeout)
+      // 429 (rate limit) is NOT retried — retrying makes rate limits worse.
+      // The caller should back off or abort when it sees status 429.
       const isClientError = response.status >= 400 && response.status < 500
-      const isRetryableClientError = response.status === 408 || response.status === 429
+      const isRetryableClientError = response.status === 408
 
       if (isClientError && !isRetryableClientError) {
-        log.swush.warn(`[SWUSH] Non-retryable error ${response.status} on attempt ${attempt}`)
+        if (response.status === 429) {
+          log.swush.warn({
+            endpoint,
+            retryAfterSeconds: response.retryAfterSeconds,
+          }, '[SWUSH] Rate limited (429) — NOT retrying, returning immediately')
+        } else {
+          log.swush.warn(`[SWUSH] Non-retryable error ${response.status} on attempt ${attempt}`)
+        }
         return response
       }
 

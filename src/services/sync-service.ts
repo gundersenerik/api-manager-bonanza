@@ -245,8 +245,21 @@ export class SyncService {
     onProgress?.(1, totalPages)
 
     // Fetch and save remaining pages
+    let rateLimitAborted = false
     for (let page = 2; page <= totalPages; page++) {
       const response = await this.swush.getUsers(game.subsite_key, game.game_key, page)
+
+      // Abort immediately on rate limit — don't keep hammering SWUSH
+      if (response.status === 429) {
+        log.sync.warn({
+          page,
+          totalPages,
+          gameKey: game.game_key,
+          retryAfterSeconds: response.retryAfterSeconds,
+        }, 'SWUSH rate limit hit — aborting user sync for this game')
+        rateLimitAborted = true
+        break
+      }
 
       if (response.error || !response.data) {
         log.sync.error({
@@ -271,12 +284,18 @@ export class SyncService {
 
       onProgress?.(page, totalPages)
 
-      // Small delay to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 100))
+      // Delay between page requests to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500))
     }
 
     // Log summary
-    if (failedPages.length > 0) {
+    if (rateLimitAborted) {
+      log.sync.warn({
+        syncedCount,
+        totalPages,
+        gameKey: game.game_key,
+      }, 'User sync aborted due to SWUSH rate limit — partial data saved')
+    } else if (failedPages.length > 0) {
       log.sync.warn({
         syncedCount,
         errorCount,
@@ -290,6 +309,15 @@ export class SyncService {
         totalPages,
         gameKey: game.game_key,
       }, 'Completed users sync successfully')
+    }
+
+    // Rate limit abort: partial success — data saved so far is valid, retry next cron run
+    if (rateLimitAborted) {
+      return {
+        success: false,
+        error: `Rate limited by SWUSH — synced ${syncedCount} users before abort`,
+        usersSynced: syncedCount,
+      }
     }
 
     // Consider sync failed if more than 10% of pages failed
