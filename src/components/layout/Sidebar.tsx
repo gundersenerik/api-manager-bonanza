@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { motion } from 'framer-motion'
 import {
+  Activity,
+  BarChart3,
   LayoutDashboard,
   Gamepad2,
   RefreshCw,
@@ -16,11 +18,14 @@ import {
   Shield,
 } from 'lucide-react'
 import type { AppUserRole } from '@/types'
+import { NotificationBell } from '@/components/layout/NotificationBell'
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, adminOnly: false },
   { name: 'Games', href: '/dashboard/games', icon: Gamepad2, adminOnly: false },
   { name: 'Sync Logs', href: '/dashboard/sync-logs', icon: RefreshCw, adminOnly: false },
+  { name: 'Activity', href: '/dashboard/activity', icon: Activity, adminOnly: false },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, adminOnly: false },
   { name: 'Users', href: '/dashboard/users', icon: Users, adminOnly: true },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings, adminOnly: true },
 ]
@@ -64,9 +69,10 @@ export function Sidebar({ userEmail, userRole, onSignOut, signingOut }: SidebarP
             <Gamepad2 className="w-5 h-5 text-white" />
           </div>
         </motion.div>
-        <span className="ml-3 text-lg font-heading font-bold text-gradient-primary">
+        <span className="ml-3 text-lg font-heading font-bold text-gradient-primary flex-1">
           SWUSH
         </span>
+        <NotificationBell />
       </div>
 
       {/* Navigation */}

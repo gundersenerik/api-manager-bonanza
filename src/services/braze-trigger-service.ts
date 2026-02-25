@@ -3,6 +3,7 @@ import { Game, GameTrigger } from '@/types'
 import { differenceInHours } from 'date-fns'
 import { log } from '@/lib/logger'
 import { generateRoundIntro, getRoundIntro } from '@/services/round-intro-service'
+import { notificationService } from '@/services/notification-service'
 
 // Configuration constants for deadline reminder trigger
 // Window to trigger 24h reminder (allows for cron timing variance)
@@ -324,6 +325,10 @@ export class BrazeTriggerService {
       await this.updateTriggerLastTriggered(trigger.id, game.current_round || 1)
     }
 
+    // Dispatch in-app notification for trigger events
+    this.dispatchTriggerNotification(game, trigger, result.success, result.error)
+      .catch(err => log.braze.error({ err }, 'Failed to dispatch trigger notification'))
+
     return {
       success: result.success,
       triggered: true,
@@ -331,6 +336,61 @@ export class BrazeTriggerService {
         ? `Campaign triggered for ${trigger.trigger_type}`
         : `Failed to trigger: ${result.error}`,
       brazeResponse: result.response,
+    }
+  }
+
+  /**
+   * Dispatch an in-app notification for a trigger event
+   */
+  private async dispatchTriggerNotification(
+    game: Game,
+    trigger: GameTrigger,
+    success: boolean,
+    error?: string
+  ): Promise<void> {
+    if (success) {
+      // Map trigger type to notification event type
+      const eventTypeMap: Record<string, 'trigger_fired' | 'round_started' | 'round_ended'> = {
+        round_started: 'round_started',
+        round_ended: 'round_ended',
+        deadline_reminder_24h: 'trigger_fired',
+      }
+      const eventType = eventTypeMap[trigger.trigger_type] || 'trigger_fired'
+
+      const titleMap: Record<string, string> = {
+        round_started: `Round ${game.current_round} Started`,
+        round_ended: `Round ${game.current_round} Ended`,
+        deadline_reminder_24h: 'Deadline Reminder Sent',
+      }
+
+      await notificationService.dispatch({
+        event_type: eventType,
+        title: `${titleMap[trigger.trigger_type] || 'Trigger Fired'}: ${game.name}`,
+        message: `Campaign triggered successfully for ${trigger.trigger_type} (round ${game.current_round}).`,
+        severity: 'info',
+        game_id: game.id,
+        game_name: game.name,
+        metadata: {
+          trigger_type: trigger.trigger_type,
+          trigger_id: trigger.id,
+          round: game.current_round,
+        },
+      })
+    } else {
+      await notificationService.dispatch({
+        event_type: 'trigger_failure',
+        title: `Trigger Failed: ${game.name}`,
+        message: error || `Failed to fire ${trigger.trigger_type} campaign.`,
+        severity: 'error',
+        game_id: game.id,
+        game_name: game.name,
+        metadata: {
+          trigger_type: trigger.trigger_type,
+          trigger_id: trigger.id,
+          round: game.current_round,
+          error,
+        },
+      })
     }
   }
 

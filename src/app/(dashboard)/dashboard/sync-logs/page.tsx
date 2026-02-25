@@ -15,6 +15,8 @@ import { CodeBlock } from '@/components/ui/CodeBlock'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { LoadingScreen } from '@/components/ui/LoadingDots'
+import { ExportButton } from '@/components/ui/ExportButton'
+import { exportCsv, exportJson } from '@/lib/csv-export'
 
 interface SyncLog {
   id: string
@@ -37,6 +39,18 @@ const triggerColors: Record<string, 'electric' | 'ocean' | 'solar' | 'ink'> = {
   scheduled: 'ocean',
   webhook: 'solar',
 }
+
+const syncLogCsvColumns = [
+  { header: 'Status', accessor: (row: SyncLog) => row.status },
+  { header: 'Game', accessor: (row: SyncLog) => row.game?.name || 'Unknown' },
+  { header: 'Game Key', accessor: (row: SyncLog) => row.game?.game_key || '' },
+  { header: 'Trigger', accessor: (row: SyncLog) => row.trigger_type },
+  { header: 'Elements Synced', accessor: (row: SyncLog) => row.elements_synced },
+  { header: 'Users Synced', accessor: (row: SyncLog) => row.users_synced },
+  { header: 'Error', accessor: (row: SyncLog) => row.error_message || '' },
+  { header: 'Started At', accessor: (row: SyncLog) => row.started_at },
+  { header: 'Completed At', accessor: (row: SyncLog) => row.completed_at || '' },
+]
 
 export default function SyncLogsPage() {
   const [logs, setLogs] = useState<SyncLog[]>([])
@@ -92,14 +106,22 @@ export default function SyncLogsPage() {
         title="Sync Logs"
         description="View synchronization history across all games"
         actions={
-          <Button
-            variant="ghost"
-            icon={RefreshCw}
-            size="sm"
-            onClick={() => { setLoading(true); fetchLogs() }}
-          >
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            {logs.length > 0 && (
+              <ExportButton
+                onExportCsv={() => exportCsv(logs, syncLogCsvColumns, 'sync-logs')}
+                onExportJson={() => exportJson(logs, 'sync-logs')}
+              />
+            )}
+            <Button
+              variant="ghost"
+              icon={RefreshCw}
+              size="sm"
+              onClick={() => { setLoading(true); fetchLogs() }}
+            >
+              Refresh
+            </Button>
+          </div>
         }
       />
 

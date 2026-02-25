@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { jsonResponse, errorResponse, requireRole, requireAdmin } from '@/lib/api-auth'
 import { generateRoundIntro, getRoundIntro } from '@/services/round-intro-service'
+import { z } from 'zod'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -100,5 +101,76 @@ export async function POST(_request: NextRequest, { params }: RouteContext) {
     )
   } catch (error) {
     return errorResponse('Failed to generate round intro', 500)
+  }
+}
+
+const UpdateIntroSchema = z.object({
+  intro_text: z.string().min(1, 'Intro text cannot be empty').max(5000, 'Intro text too long'),
+})
+
+/**
+ * PUT /api/admin/games/:id/round-intro
+ * Edit an existing round intro's text (admin only).
+ *
+ * Body:
+ * - intro_text: string — the new intro text
+ *
+ * Query params:
+ * - round: number — the round number to edit (required)
+ */
+export async function PUT(request: NextRequest, { params }: RouteContext) {
+  const result = await requireAdmin()
+  if (result instanceof Response) return result
+
+  const { id: gameId } = await params
+  const supabase = supabaseAdmin()
+
+  try {
+    const body = await request.json()
+    const { intro_text } = UpdateIntroSchema.parse(body)
+
+    const roundParam = request.nextUrl.searchParams.get('round')
+    if (!roundParam) {
+      return errorResponse('Query param "round" is required', 400)
+    }
+    const roundNumber = parseInt(roundParam, 10)
+    if (isNaN(roundNumber)) {
+      return errorResponse('Invalid round number', 400)
+    }
+
+    // Update the intro text
+    const { data: updated, error } = await supabase
+      .from('round_intros')
+      .update({
+        intro_text,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('game_id', gameId)
+      .eq('round_number', roundNumber)
+      .select()
+      .single()
+
+    if (error || !updated) {
+      return errorResponse('Round intro not found or update failed', 404)
+    }
+
+    return jsonResponse({
+      success: true,
+      data: {
+        id: updated.id,
+        round_number: updated.round_number,
+        intro_text: updated.intro_text,
+        articles_used: updated.articles_used,
+        vespa_query: updated.vespa_query,
+        model_used: updated.model_used,
+        generated_at: updated.generated_at,
+      },
+      message: `Round intro updated for round ${roundNumber}`,
+    })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(`Validation error: ${error.errors[0]?.message ?? 'Invalid input'}`, 400)
+    }
+    return errorResponse('Failed to update round intro', 500)
   }
 }
