@@ -229,6 +229,29 @@ export interface BrazeUserResponse {
   }
 }
 
+// ============================================
+// App User / RBAC Types
+// ============================================
+
+export type AppUserRole = 'user' | 'admin'
+
+export interface AppUser {
+  id: string
+  email: string
+  role: AppUserRole
+  auth_user_id: string | null
+  invited_by: string | null
+  display_name: string | null
+  is_active: boolean
+  last_login_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ============================================
+// API Response Types (for Braze)
+// ============================================
+
 export interface ApiResponse<T> {
   success: boolean
   data?: T

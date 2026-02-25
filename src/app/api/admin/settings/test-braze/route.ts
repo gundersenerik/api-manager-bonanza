@@ -1,13 +1,13 @@
-import { jsonResponse, errorResponse, requireAdminAuth } from '@/lib/api-auth'
+import { jsonResponse, errorResponse, requireAdmin } from '@/lib/api-auth'
 
 /**
  * POST /api/admin/settings/test-braze
  * Test Braze API connection
  */
 export async function POST() {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Only admins can test API connections
+  const result = await requireAdmin()
+  if (result instanceof Response) return result
 
   try {
     const apiKey = process.env.BRAZE_API_KEY

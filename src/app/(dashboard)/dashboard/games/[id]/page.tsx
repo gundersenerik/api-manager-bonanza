@@ -21,6 +21,7 @@ import {
   Layers,
 } from 'lucide-react'
 import { Game, SyncLog, GameTrigger } from '@/types'
+import { useAuth } from '@/contexts/AuthContext'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -70,6 +71,7 @@ const liquidTags = [
 ]
 
 export default function GameDetailPage() {
+  const { isAdmin } = useAuth()
   const params = useParams()
   const [game, setGame] = useState<GameWithDetails | null>(null)
   const [loading, setLoading] = useState(true)
@@ -263,15 +265,17 @@ export default function GameDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              icon={Code}
-              onClick={handleDebug}
-              disabled={debugging}
-              size="sm"
-            >
-              {debugging ? 'Debugging...' : 'Debug Sync'}
-            </Button>
+            {isAdmin && (
+              <Button
+                variant="ghost"
+                icon={Code}
+                onClick={handleDebug}
+                disabled={debugging}
+                size="sm"
+              >
+                {debugging ? 'Debugging...' : 'Debug Sync'}
+              </Button>
+            )}
             <SyncButton state={syncState} onClick={handleSync} />
           </div>
         </div>
@@ -524,14 +528,16 @@ export default function GameDetailPage() {
             <Bell className="w-5 h-5 text-solar" />
             <h2 className="text-lg font-heading font-semibold text-ink-50">Braze Triggers</h2>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={Plus}
-            onClick={() => setShowTriggerForm(!showTriggerForm)}
-          >
-            Add Trigger
-          </Button>
+          {isAdmin && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Plus}
+              onClick={() => setShowTriggerForm(!showTriggerForm)}
+            >
+              Add Trigger
+            </Button>
+          )}
         </div>
 
         <AnimatePresence>
@@ -609,14 +615,16 @@ export default function GameDetailPage() {
                   <Badge color={trigger.is_active ? 'mint' : 'ink'}>
                     {trigger.is_active ? 'Active' : 'Inactive'}
                   </Badge>
-                  <motion.button
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    onClick={() => handleDeleteTrigger(trigger.id)}
-                    className="p-2 text-ink-500 hover:text-punch transition-colors rounded-lg hover:bg-punch/10"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </motion.button>
+                  {isAdmin && (
+                    <motion.button
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => handleDeleteTrigger(trigger.id)}
+                      className="p-2 text-ink-500 hover:text-punch transition-colors rounded-lg hover:bg-punch/10"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </motion.button>
+                  )}
                 </div>
               </motion.div>
             ))

@@ -10,6 +10,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { Game } from '@/types'
+import { useAuth } from '@/contexts/AuthContext'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -19,6 +20,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { LoadingScreen } from '@/components/ui/LoadingDots'
 
 export default function GamesPage() {
+  const { isAdmin } = useAuth()
   const [games, setGames] = useState<Game[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -60,9 +62,11 @@ export default function GamesPage() {
         title="Games"
         description="Manage your SWUSH fantasy game integrations"
         actions={
-          <Link href="/dashboard/games/new">
-            <Button icon={Plus} size="sm">Add Game</Button>
-          </Link>
+          isAdmin ? (
+            <Link href="/dashboard/games/new">
+              <Button icon={Plus} size="sm">Add Game</Button>
+            </Link>
+          ) : undefined
         }
       />
 
@@ -95,9 +99,11 @@ export default function GamesPage() {
               title="No games yet"
               description="Get started by adding your first game"
               action={
-                <Link href="/dashboard/games/new">
-                  <Button icon={Plus}>Add Game</Button>
-                </Link>
+                isAdmin ? (
+                  <Link href="/dashboard/games/new">
+                    <Button icon={Plus}>Add Game</Button>
+                  </Link>
+                ) : undefined
               }
             />
           </div>

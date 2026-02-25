@@ -11,26 +11,33 @@ import {
   Settings,
   LogOut,
   User,
+  Users,
   Sparkles,
+  Shield,
 } from 'lucide-react'
+import type { AppUserRole } from '@/types'
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Games', href: '/dashboard/games', icon: Gamepad2 },
-  { name: 'Sync Logs', href: '/dashboard/sync-logs', icon: RefreshCw },
-  { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, adminOnly: false },
+  { name: 'Games', href: '/dashboard/games', icon: Gamepad2, adminOnly: false },
+  { name: 'Sync Logs', href: '/dashboard/sync-logs', icon: RefreshCw, adminOnly: false },
+  { name: 'Users', href: '/dashboard/users', icon: Users, adminOnly: true },
+  { name: 'Settings', href: '/dashboard/settings', icon: Settings, adminOnly: true },
 ]
 
 interface SidebarProps {
   userEmail: string | null
+  userRole: AppUserRole | null
   onSignOut: () => void
   signingOut: boolean
 }
 
-export function Sidebar({ userEmail, onSignOut, signingOut }: SidebarProps) {
+export function Sidebar({ userEmail, userRole, onSignOut, signingOut }: SidebarProps) {
   const pathname = usePathname()
   const [logoClicks, setLogoClicks] = useState(0)
   const [logoWiggle, setLogoWiggle] = useState(false)
+  const isAdmin = userRole === 'admin'
+  const visibleNavigation = navigation.filter(item => !item.adminOnly || isAdmin)
 
   const handleLogoClick = () => {
     const next = logoClicks + 1
@@ -64,7 +71,7 @@ export function Sidebar({ userEmail, onSignOut, signingOut }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex flex-col gap-1 p-4">
-        {navigation.map((item) => {
+        {visibleNavigation.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname?.startsWith(item.href + '/'))
             || (item.href === '/dashboard' && pathname === '/dashboard')
           return (
@@ -113,6 +120,14 @@ export function Sidebar({ userEmail, onSignOut, signingOut }: SidebarProps) {
               <p className="text-sm font-medium text-ink-200 truncate">
                 {userEmail}
               </p>
+              {userRole && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  {isAdmin && <Shield className="w-3 h-3 text-electric-400" />}
+                  <span className={`text-xs ${isAdmin ? 'text-electric-400' : 'text-ink-500'}`}>
+                    {userRole}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}

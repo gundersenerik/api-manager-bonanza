@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { createSwushClient } from '@/services/swush-client'
-import { jsonResponse, requireAdminAuth } from '@/lib/api-auth'
+import { jsonResponse, requireRole } from '@/lib/api-auth'
 
 interface RouteContext {
   params: Promise<{ id: string }>
@@ -13,9 +13,9 @@ interface RouteContext {
  * Returns detailed info at each step
  */
 export async function GET(_request: NextRequest, { params }: RouteContext) {
-  // Verify admin authentication
-  const authError = await requireAdminAuth()
-  if (authError) return authError
+  // Any invited user can view debug info
+  const result = await requireRole('user')
+  if (result instanceof Response) return result
 
   const supabase = supabaseAdmin()
   const { id } = await params

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Save,
@@ -13,6 +14,8 @@ import {
   Gamepad2,
   Zap,
   Settings2,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -20,11 +23,13 @@ import { Input } from '@/components/ui/Input'
 import { CodeBlock } from '@/components/ui/CodeBlock'
 import { PageHeader } from '@/components/layout/PageHeader'
 import { LoadingScreen } from '@/components/ui/LoadingDots'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface SettingsData {
   swush_api_key: string
   swush_api_base_url: string
   braze_api_key: string
+  braze_api_token: string
   braze_rest_endpoint: string
   default_sync_interval: number
 }
@@ -32,10 +37,13 @@ interface SettingsData {
 type TestStatus = 'idle' | 'testing' | 'success' | 'error'
 
 export default function SettingsPage() {
+  const { isAdmin } = useAuth()
+  const router = useRouter()
   const [settings, setSettings] = useState<SettingsData>({
     swush_api_key: '',
     swush_api_base_url: '',
     braze_api_key: '',
+    braze_api_token: '',
     braze_rest_endpoint: '',
     default_sync_interval: 30,
   })
@@ -44,10 +52,16 @@ export default function SettingsPage() {
   const [swushStatus, setSwushStatus] = useState<TestStatus>('idle')
   const [brazeStatus, setBrazeStatus] = useState<TestStatus>('idle')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [revealed, setRevealed] = useState(false)
+  const [revealing, setRevealing] = useState(false)
 
   useEffect(() => {
+    if (isAdmin === false) {
+      router.push('/dashboard')
+      return
+    }
     fetchSettings()
-  }, [])
+  }, [isAdmin, router])
 
   const fetchSettings = async () => {
     try {
@@ -60,6 +74,28 @@ export default function SettingsPage() {
       console.error('Failed to fetch settings:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleRevealToggle = async () => {
+    if (revealed) {
+      // Re-fetch masked values
+      setRevealed(false)
+      fetchSettings()
+      return
+    }
+    setRevealing(true)
+    try {
+      const res = await fetch('/api/admin/settings?reveal=true')
+      const data = await res.json()
+      if (data.success && data.data) {
+        setSettings(prev => ({ ...prev, ...data.data }))
+        setRevealed(true)
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to reveal keys' })
+    } finally {
+      setRevealing(false)
     }
   }
 
@@ -183,14 +219,31 @@ BRAZE_REST_ENDPOINT=https://rest.fra-02.braze.eu`
         title="Settings"
         description="Configure API integrations and default behaviors"
         actions={
-          <Button
-            icon={Save}
-            onClick={handleSave}
-            disabled={saving}
-            size="sm"
-          >
-            {saving ? 'Saving...' : 'Save Settings'}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleRevealToggle}
+              disabled={revealing}
+            >
+              {revealing ? (
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+              ) : revealed ? (
+                <EyeOff className="w-4 h-4 mr-2" />
+              ) : (
+                <Eye className="w-4 h-4 mr-2" />
+              )}
+              {revealing ? 'Revealing...' : revealed ? 'Hide Keys' : 'Reveal Keys'}
+            </Button>
+            <Button
+              icon={Save}
+              onClick={handleSave}
+              disabled={saving}
+              size="sm"
+            >
+              {saving ? 'Saving...' : 'Save Settings'}
+            </Button>
+          </div>
         }
       />
 
@@ -248,13 +301,17 @@ BRAZE_REST_ENDPOINT=https://rest.fra-02.braze.eu`
                 onChange={(e) => setSettings(prev => ({ ...prev, swush_api_base_url: e.target.value }))}
                 placeholder="https://season.swush.com/v1/partner"
               />
-              <Input
-                label="API Key"
-                type="password"
-                value={settings.swush_api_key}
-                onChange={(e) => setSettings(prev => ({ ...prev, swush_api_key: e.target.value }))}
-                placeholder="Enter your SWUSH Partner API key"
-              />
+              <div>
+                <label className="block text-sm font-medium text-ink-200 mb-1.5">API Key</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type={revealed ? 'text' : 'password'}
+                    value={settings.swush_api_key}
+                    readOnly
+                    className="flex-1 px-3 py-2 bg-ink-800/50 border border-ink-600/30 rounded-lg text-ink-200 font-mono text-sm focus:outline-none"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </Card>
@@ -293,13 +350,26 @@ BRAZE_REST_ENDPOINT=https://rest.fra-02.braze.eu`
                   </a>
                 </p>
               </div>
-              <Input
-                label="API Key"
-                type="password"
-                value={settings.braze_api_key}
-                onChange={(e) => setSettings(prev => ({ ...prev, braze_api_key: e.target.value }))}
-                placeholder="Enter your Braze API key"
-              />
+              <div>
+                <label className="block text-sm font-medium text-ink-200 mb-1.5">API Key</label>
+                <input
+                  type={revealed ? 'text' : 'password'}
+                  value={settings.braze_api_key}
+                  readOnly
+                  className="w-full px-3 py-2 bg-ink-800/50 border border-ink-600/30 rounded-lg text-ink-200 font-mono text-sm focus:outline-none"
+                />
+              </div>
+              {settings.braze_api_token && (
+                <div>
+                  <label className="block text-sm font-medium text-ink-200 mb-1.5">API Token (Connected Content)</label>
+                  <input
+                    type={revealed ? 'text' : 'password'}
+                    value={settings.braze_api_token}
+                    readOnly
+                    className="w-full px-3 py-2 bg-ink-800/50 border border-ink-600/30 rounded-lg text-ink-200 font-mono text-sm focus:outline-none"
+                  />
+                </div>
+              )}
             </div>
           </div>
         </Card>
