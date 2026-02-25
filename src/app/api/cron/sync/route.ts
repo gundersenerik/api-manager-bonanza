@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
     return errorResponse('Unauthorized', 401)
   }
 
+  const jobStartTime = Date.now()
   log.cron.info('Starting scheduled sync job')
 
   try {
@@ -37,11 +38,15 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    log.cron.info({ gamesDue: gamesDue.length }, 'Found games due for sync')
+    log.cron.info({
+      gamesDue: gamesDue.length,
+      games: gamesDue.map(g => ({ key: g.game_key, name: g.name })),
+    }, 'Found games due for sync')
 
     let totalUsers = 0
     let totalElements = 0
     let syncedGames = 0
+    const failedGames: { key: string; error: string }[] = []
 
     for (const game of gamesDue) {
       const result = await syncService.syncGame(game, 'scheduled')
@@ -50,23 +55,51 @@ export async function POST(request: NextRequest) {
         syncedGames++
         totalUsers += result.usersSynced || 0
         totalElements += result.elementsSynced || 0
+      } else {
+        failedGames.push({ key: game.game_key, error: result.error || 'Unknown' })
       }
     }
 
-    log.cron.info({ syncedGames, totalUsers, totalElements }, 'Sync job completed')
+    const jobDuration = Date.now() - jobStartTime
+
+    if (failedGames.length > 0) {
+      log.cron.warn({
+        syncedGames,
+        failedGames,
+        totalUsers,
+        totalElements,
+        durationMs: jobDuration,
+      }, `Sync job completed with ${failedGames.length} failures`)
+    } else {
+      log.cron.info({
+        syncedGames,
+        totalUsers,
+        totalElements,
+        durationMs: jobDuration,
+      }, 'Sync job completed successfully')
+    }
 
     return jsonResponse({
       success: true,
-      message: `Synced ${syncedGames} games`,
+      message: `Synced ${syncedGames}/${gamesDue.length} games`,
       gamesChecked: gamesDue.length,
       gamesSynced: syncedGames,
+      gamesFailed: failedGames.length,
+      failedGames: failedGames.length > 0 ? failedGames : undefined,
       usersSynced: totalUsers,
       elementsSynced: totalElements,
+      durationMs: jobDuration,
       timestamp: new Date().toISOString(),
     })
   } catch (error) {
-    log.cron.error({ err: error }, 'Sync job failed')
-    return errorResponse('Sync job failed', 500)
+    const jobDuration = Date.now() - jobStartTime
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    log.cron.error({
+      err: error,
+      durationMs: jobDuration,
+      errorMessage,
+    }, 'Sync job crashed')
+    return errorResponse(`Sync job failed: ${errorMessage}`, 500)
   }
 }
 
