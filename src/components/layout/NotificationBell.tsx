@@ -171,7 +171,7 @@ export function NotificationBell() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 mt-2 w-96 max-h-[480px] bg-ink-800/95 backdrop-blur-xl rounded-2xl ring-1 ring-ink-600/40 shadow-2xl shadow-ink-950/60 z-50 overflow-hidden"
+            className="absolute left-0 mt-2 w-96 max-h-[480px] bg-ink-800/95 backdrop-blur-xl rounded-2xl ring-1 ring-ink-600/40 shadow-2xl shadow-ink-950/60 z-50 overflow-hidden"
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-ink-600/30">
