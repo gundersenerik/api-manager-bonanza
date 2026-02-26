@@ -9,6 +9,9 @@ import {
   AlertCircle,
   RefreshCw,
   Flag,
+  Archive,
+  RotateCcw,
+  Loader2,
 } from 'lucide-react'
 import { Game } from '@/types'
 import { useAuth } from '@/contexts/AuthContext'
@@ -58,6 +61,7 @@ export default function GamesPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<SortDirection>(null)
+  const [archivingId, setArchivingId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchGames()
@@ -78,6 +82,33 @@ export default function GamesPage() {
       setError(error instanceof Error ? error.message : 'Failed to fetch games')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleArchiveToggle = async (game: Game) => {
+    const isArchiving = game.is_active
+    const action = isArchiving ? 'archive' : 'restore'
+    if (!confirm(`${isArchiving ? 'Archive' : 'Restore'} "${game.name}"? ${isArchiving ? 'It will be hidden from active syncs.' : 'It will be included in active syncs again.'}`)) return
+
+    setArchivingId(game.id)
+    try {
+      const res = isArchiving
+        ? await fetch(`/api/admin/games/${game.id}`, { method: 'DELETE' })
+        : await fetch(`/api/admin/games/${game.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_active: true }),
+          })
+      const data = await res.json()
+      if (data.success) {
+        setGames(prev => prev.map(g => g.id === game.id ? { ...g, is_active: !isArchiving } : g))
+      } else {
+        alert(`Failed to ${action}: ${data.error || 'Unknown error'}`)
+      }
+    } catch (err) {
+      alert(`Failed to ${action}: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    } finally {
+      setArchivingId(null)
     }
   }
 
@@ -431,13 +462,35 @@ export default function GamesPage() {
                             </div>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-right">
-                          <Link
-                            href={`/dashboard/games/${game.id}`}
-                            className="text-electric-400 hover:text-electric-300 text-sm font-medium transition-colors"
-                          >
-                            View &rarr;
-                          </Link>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-end gap-3">
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleArchiveToggle(game)}
+                                disabled={archivingId === game.id}
+                                className={`text-sm font-medium transition-colors flex items-center gap-1 ${
+                                  game.is_active
+                                    ? 'text-ink-500 hover:text-solar'
+                                    : 'text-ink-500 hover:text-mint'
+                                } disabled:opacity-50`}
+                              >
+                                {archivingId === game.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : game.is_active ? (
+                                  <Archive className="w-3.5 h-3.5" />
+                                ) : (
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                )}
+                                {game.is_active ? 'Archive' : 'Restore'}
+                              </button>
+                            )}
+                            <Link
+                              href={`/dashboard/games/${game.id}`}
+                              className="text-electric-400 hover:text-electric-300 text-sm font-medium transition-colors"
+                            >
+                              View &rarr;
+                            </Link>
+                          </div>
                         </td>
                       </motion.tr>
                     ))
