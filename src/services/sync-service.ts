@@ -778,7 +778,22 @@ export class SyncService {
         continue
       }
 
-      // Routine sync based on configured interval
+      // Between rounds: data is static — skip routine syncs, wait for next event
+      // Critical period check above handles pre-round (2h before start) and post-round (1h after end)
+      // Safety: still refresh every 48h in case SWUSH changed round schedules
+      const endedRoundStates = ['Ended', 'EndedLastest']
+      if (endedRoundStates.includes(game.round_state || '')) {
+        const hoursSinceSync = minutesSinceSync / 60
+        if (hoursSinceSync >= 48) {
+          log.sync.info({ gameKey: game.game_key, hoursSinceSync: Math.round(hoursSinceSync) }, 'Safety sync — round ended but 48h+ since last sync')
+          gamesDue.push(game)
+        } else {
+          log.sync.debug({ gameKey: game.game_key, roundState: game.round_state }, 'Skipping — round ended, waiting for next event')
+        }
+        continue
+      }
+
+      // Routine sync based on configured interval (only for active rounds)
       if (minutesSinceSync >= game.sync_interval_minutes) {
         log.sync.debug({
           gameKey: game.game_key,
