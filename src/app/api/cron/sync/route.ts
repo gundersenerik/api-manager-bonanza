@@ -1,10 +1,14 @@
 import { NextRequest } from 'next/server'
 import { syncService } from '@/services/sync-service'
+import { getRemainingBudget, BUDGET_EXHAUSTED_PREFIX } from '@/services/swush-client'
 import { jsonResponse, errorResponse } from '@/lib/api-auth'
 import { log } from '@/lib/logger'
 
 // Force dynamic rendering to prevent build-time execution
 export const dynamic = 'force-dynamic'
+
+// Allow up to 5 minutes for large syncs (requires Vercel Pro; Hobby is capped at 60s)
+export const maxDuration = 300
 
 /**
  * POST /api/cron/sync
@@ -38,13 +42,16 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Sync ALL due games in one cron run (runs every 4 hours).
-    // With page size 5000, each game uses ~3 API calls.
-    // Budget: 6 runs × 3 games × 3 calls = 54/day (well under 100 limit).
+    // Sync all due games with circuit-breaker budget checks.
+    // Each game uses: 1 (game details) + 1 (elements) + ceil(users / 5000) (user pages) API calls.
+    // Example: 3 games × 25k users = 3 × (2 + 5) = 21 calls per cron run.
+    // With 6 runs/day = ~126 calls — budget limit of 90 scheduled leaves room for manual syncs.
+    const remainingBudget = await getRemainingBudget()
     log.cron.info({
       gamesDue: gamesDue.length,
-      games: gamesDue.map(g => ({ key: g.game_key, name: g.name })),
-    }, `Syncing ${gamesDue.length} due games`)
+      remainingBudget,
+      games: gamesDue.map(g => ({ key: g.game_key, name: g.name, usersTotal: g.users_total })),
+    }, `Syncing ${gamesDue.length} due games (${remainingBudget} API calls remaining)`)
 
     const results: Array<{
       gameKey: string
@@ -52,10 +59,34 @@ export async function POST(request: NextRequest) {
       usersSynced: number
       elementsSynced: number
       error?: string
+      skipped?: boolean
     }> = []
+
+    let budgetExhausted = false
 
     for (let i = 0; i < gamesDue.length; i++) {
       const game = gamesDue[i]!
+
+      // Circuit breaker: check if we have enough budget for this game
+      const estimatedCalls = 2 + Math.ceil((game.users_total || 5000) / 5000)
+      const currentBudget = await getRemainingBudget()
+
+      if (currentBudget < estimatedCalls) {
+        log.cron.warn({
+          gameKey: game.game_key,
+          estimatedCalls,
+          currentBudget,
+        }, `Skipping game — insufficient budget (need ${estimatedCalls}, have ${currentBudget})`)
+        results.push({
+          gameKey: game.game_key,
+          success: false,
+          usersSynced: 0,
+          elementsSynced: 0,
+          error: `Skipped: insufficient budget (need ${estimatedCalls}, have ${currentBudget})`,
+          skipped: true,
+        })
+        continue
+      }
 
       // Add 2-second delay between games to respect 1 req/sec rate limit
       if (i > 0) {
@@ -71,32 +102,52 @@ export async function POST(request: NextRequest) {
         elementsSynced: result.elementsSynced || 0,
         error: result.error,
       })
+
+      // If a game sync returns budget exhaustion, stop the entire cron run
+      if (!result.success && result.error?.includes(BUDGET_EXHAUSTED_PREFIX)) {
+        log.cron.warn({
+          gameKey: game.game_key,
+          completedGames: i + 1,
+          totalGames: gamesDue.length,
+        }, 'Budget exhausted during sync — stopping cron run')
+        budgetExhausted = true
+        break
+      }
     }
 
     const jobDuration = Date.now() - jobStartTime
     const successCount = results.filter(r => r.success).length
+    const skippedCount = results.filter(r => r.skipped).length
     const totalUsers = results.reduce((sum, r) => sum + r.usersSynced, 0)
     const totalElements = results.reduce((sum, r) => sum + r.elementsSynced, 0)
+    const finalBudget = await getRemainingBudget()
     const allSuccess = successCount === results.length
 
     log.cron.info({
       gamesSynced: successCount,
-      gamesFailed: results.length - successCount,
+      gamesSkipped: skippedCount,
+      gamesFailed: results.length - successCount - skippedCount,
+      budgetExhausted,
       totalUsers,
       totalElements,
+      remainingBudget: finalBudget,
       durationMs: jobDuration,
       results,
     }, `Sync job completed: ${successCount}/${results.length} games synced`)
 
     return jsonResponse({
       success: allSuccess,
-      message: allSuccess
-        ? `Synced ${successCount} games successfully`
-        : `Synced ${successCount}/${results.length} games (${results.length - successCount} failed)`,
+      message: budgetExhausted
+        ? `Budget exhausted — synced ${successCount}/${gamesDue.length} games before stopping`
+        : allSuccess
+          ? `Synced ${successCount} games successfully`
+          : `Synced ${successCount}/${results.length} games (${results.length - successCount} failed)`,
       gamesSynced: successCount,
+      gamesSkipped: skippedCount,
       gamesDueTotal: gamesDue.length,
       usersSynced: totalUsers,
       elementsSynced: totalElements,
+      remainingBudget: finalBudget,
       durationMs: jobDuration,
       results,
       timestamp: new Date().toISOString(),

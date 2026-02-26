@@ -28,7 +28,7 @@ interface RouteContext {
  */
 function validateBrazeToken(request: NextRequest): boolean {
   const token = request.nextUrl.searchParams.get('token')
-  const expectedToken = process.env.BRAZE_API_TOKEN || process.env.NEXT_PUBLIC_BRAZE_API_TOKEN
+  const expectedToken = process.env.BRAZE_API_TOKEN
 
   if (!token || !expectedToken) {
     return false
