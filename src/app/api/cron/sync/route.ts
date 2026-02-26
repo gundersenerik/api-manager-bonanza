@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     // Sync all due games with circuit-breaker budget checks.
     // Each game uses: 1 (game details) + 1 (elements) + ceil(users / 5000) (user pages) API calls.
     // Event-driven scheduling: routine 1×/day + critical periods (30-min intervals near events).
-    // Typical budget: ~14 routine + ~35 event-driven = ~49 calls/day (budget limit: 180).
+    // Typical budget: ~14 routine + ~35 event-driven = ~49 calls/day (budget limit: 90).
     const remainingBudget = await getRemainingBudget()
     log.cron.info({
       gamesDue: gamesDue.length,
