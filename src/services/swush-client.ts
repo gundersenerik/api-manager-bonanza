@@ -15,9 +15,9 @@ const RETRY_BASE_DELAY_MS = 1000 // Base delay for exponential backoff (1s, 2s, 
 const MAX_429_RETRIES = 2 // Number of retries specifically for rate-limit 429s
 const DEFAULT_429_WAIT_SECONDS = 30 // Default wait when no Retry-After header
 
-// Daily request budget — SWUSH limits to 100 requests/day
-const DAILY_BUDGET_LIMIT = 90 // Reserve 10 for manual syncs
-const DAILY_BUDGET_WARN = 75 // Log warnings above this threshold
+// Daily request budget — SWUSH limits to 200 requests/day
+const DAILY_BUDGET_LIMIT = 180 // Reserve 20 for manual syncs
+const DAILY_BUDGET_WARN = 150 // Log warnings above this threshold
 
 /** Error message prefix for client-side budget exhaustion (distinct from server 429) */
 export const BUDGET_EXHAUSTED_PREFIX = 'BUDGET_EXHAUSTED:'
