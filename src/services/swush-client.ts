@@ -3,51 +3,111 @@ import {
   SwushUsersResponse,
   SwushElement,
 } from '@/types'
+import { supabaseAdmin } from '@/lib/supabase/server'
 import { log } from '@/lib/logger'
 
 // Configuration constants
-const DEFAULT_TIMEOUT_MS = 30000 // 30 seconds
+const DEFAULT_TIMEOUT_MS = 60000 // 60 seconds (5000-user pages can be large)
 const RATE_LIMIT_DELAY_MS = 1100 // Just over 1 second — SWUSH allows max 1 req/sec
 const MAX_PAGE_SIZE = 5000 // SWUSH API max page size (confirmed in Swagger docs)
 const MAX_RETRIES = 3 // Number of retries for failed requests
 const RETRY_BASE_DELAY_MS = 1000 // Base delay for exponential backoff (1s, 2s, 4s)
+const MAX_429_RETRIES = 2 // Number of retries specifically for rate-limit 429s
+const DEFAULT_429_WAIT_SECONDS = 30 // Default wait when no Retry-After header
 
 // Daily request budget — SWUSH limits to 100 requests/day
 const DAILY_BUDGET_LIMIT = 90 // Reserve 10 for manual syncs
 const DAILY_BUDGET_WARN = 75 // Log warnings above this threshold
 
+/** Error message prefix for client-side budget exhaustion (distinct from server 429) */
+export const BUDGET_EXHAUSTED_PREFIX = 'BUDGET_EXHAUSTED:'
+
 /**
- * In-memory daily API request counter.
- * Resets on new UTC day (and on deploy/cold start — acceptable as a safety net).
+ * Persistent daily API budget counter backed by Supabase.
+ * Shared across all Vercel serverless instances — survives cold starts.
  */
 const dailyBudget = {
-  date: new Date().toISOString().slice(0, 10), // YYYY-MM-DD in UTC
-  count: 0,
-
-  /** Increment counter, returns false if budget exhausted */
-  consume(): boolean {
+  /** Increment counter atomically. Returns false if budget exhausted. */
+  async consume(): Promise<boolean> {
     const today = new Date().toISOString().slice(0, 10)
-    if (today !== this.date) {
-      // New day — reset counter
-      log.swush.info({ previousDate: this.date, previousCount: this.count }, '[SWUSH] Daily budget reset')
-      this.date = today
-      this.count = 0
+    try {
+      const db = supabaseAdmin()
+
+      // Upsert today's row and increment atomically
+      const { data, error } = await db.rpc('increment_api_budget', { budget_date: today })
+
+      if (error) {
+        // If the RPC doesn't exist yet, fall back to manual upsert
+        log.swush.warn({ err: error }, '[SWUSH] Budget RPC failed, using upsert fallback')
+        return this.consumeFallback(today)
+      }
+
+      const count = data as number
+      if (count > DAILY_BUDGET_LIMIT) {
+        log.swush.error({ count, limit: DAILY_BUDGET_LIMIT }, '[SWUSH] Daily budget exhausted')
+        return false
+      }
+      if (count >= DAILY_BUDGET_WARN) {
+        log.swush.warn({ count, limit: DAILY_BUDGET_LIMIT }, '[SWUSH] Daily budget running low')
+      }
+      return true
+    } catch (err) {
+      log.swush.error({ err }, '[SWUSH] Budget tracking error — allowing request')
+      return true // Fail open: don't block syncs if budget tracking is broken
     }
-    this.count++
-    if (this.count > DAILY_BUDGET_LIMIT) {
-      return false // Budget exhausted
+  },
+
+  /** Fallback if RPC is not yet deployed */
+  async consumeFallback(today: string): Promise<boolean> {
+    const db = supabaseAdmin()
+
+    // Try to insert today's row (ignore conflict)
+    await db.from('api_budget').upsert(
+      { date: today, count: 0, updated_at: new Date().toISOString() },
+      { onConflict: 'date', ignoreDuplicates: true }
+    )
+
+    // Read current count
+    const { data, error } = await db
+      .from('api_budget')
+      .select('count')
+      .eq('date', today)
+      .single()
+
+    if (error || !data) {
+      log.swush.warn({ err: error }, '[SWUSH] Budget fallback failed — allowing request')
+      return true
     }
-    if (this.count >= DAILY_BUDGET_WARN) {
-      log.swush.warn({ count: this.count, limit: DAILY_BUDGET_LIMIT }, '[SWUSH] Daily budget running low')
+
+    // Manually increment (not fully atomic but better than in-memory)
+    const newCount = (data.count || 0) + 1
+    await db.from('api_budget').update({ count: newCount, updated_at: new Date().toISOString() }).eq('date', today)
+
+    if (newCount > DAILY_BUDGET_LIMIT) {
+      log.swush.error({ count: newCount, limit: DAILY_BUDGET_LIMIT }, '[SWUSH] Daily budget exhausted')
+      return false
+    }
+    if (newCount >= DAILY_BUDGET_WARN) {
+      log.swush.warn({ count: newCount, limit: DAILY_BUDGET_LIMIT }, '[SWUSH] Daily budget running low')
     }
     return true
   },
 
-  /** Get current count (for logging/debugging) */
-  getCount(): number {
+  /** Get remaining budget for today */
+  async getRemaining(): Promise<number> {
     const today = new Date().toISOString().slice(0, 10)
-    if (today !== this.date) return 0
-    return this.count
+    try {
+      const db = supabaseAdmin()
+      const { data } = await db
+        .from('api_budget')
+        .select('count')
+        .eq('date', today)
+        .single()
+      const used = data?.count || 0
+      return Math.max(0, DAILY_BUDGET_LIMIT - used)
+    } catch {
+      return DAILY_BUDGET_LIMIT // Assume full budget if we can't read
+    }
   },
 }
 
@@ -125,9 +185,11 @@ export class SwushClient {
    */
   private async request<T>(endpoint: string): Promise<SwushApiResponse<T>> {
     // Check daily budget before making the request
-    if (!dailyBudget.consume()) {
-      const msg = `Daily API budget exhausted (${dailyBudget.getCount()}/${DAILY_BUDGET_LIMIT} requests). Resets at midnight UTC.`
-      log.swush.error({ count: dailyBudget.getCount(), limit: DAILY_BUDGET_LIMIT }, `[SWUSH] ${msg}`)
+    const budgetOk = await dailyBudget.consume()
+    if (!budgetOk) {
+      const remaining = await dailyBudget.getRemaining()
+      const msg = `${BUDGET_EXHAUSTED_PREFIX} Daily API budget exhausted (${DAILY_BUDGET_LIMIT - remaining}/${DAILY_BUDGET_LIMIT} requests). Resets at midnight UTC.`
+      log.swush.error({ remaining, limit: DAILY_BUDGET_LIMIT }, `[SWUSH] ${msg}`)
       return {
         data: null,
         error: msg,
@@ -141,7 +203,7 @@ export class SwushClient {
     const startTime = Date.now()
 
     try {
-      log.swush.debug({ url, dailyRequestCount: dailyBudget.getCount() }, '[SWUSH] Fetching')
+      log.swush.debug({ url }, '[SWUSH] Fetching')
 
       const response = await fetch(url, {
         method: 'GET',
@@ -254,14 +316,16 @@ export class SwushClient {
   }
 
   /**
-   * Make a request with retry logic and exponential backoff
-   * Retries on transient failures (5xx, timeouts, network errors)
+   * Make a request with retry logic and exponential backoff.
+   * Retries on transient failures (5xx, timeouts, network errors).
+   * Also retries 429 (rate limit) with Retry-After delay — but NOT budget exhaustion.
    */
   private async requestWithRetry<T>(
     endpoint: string,
     maxRetries: number = MAX_RETRIES
   ): Promise<SwushApiResponse<T>> {
     let lastResponse: SwushApiResponse<T> | null = null
+    let rateLimitRetries = 0
 
     for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
       const response = await this.request<T>(endpoint)
@@ -273,25 +337,46 @@ export class SwushClient {
 
       lastResponse = response
 
-      // Don't retry on client errors (4xx) except 408 (timeout)
-      // 429 (rate limit) is NOT retried — retrying makes rate limits worse.
-      // The caller should back off or abort when it sees status 429.
+      // Budget exhaustion (client-side) — never retry, fail immediately
+      if (response.status === 429 && response.error?.startsWith(BUDGET_EXHAUSTED_PREFIX)) {
+        log.swush.error({ endpoint }, '[SWUSH] Budget exhausted — cannot retry')
+        return response
+      }
+
+      // Server 429 (rate limit) — wait for Retry-After and retry
+      if (response.status === 429) {
+        rateLimitRetries++
+        if (rateLimitRetries > MAX_429_RETRIES) {
+          log.swush.error({
+            endpoint,
+            rateLimitRetries,
+          }, '[SWUSH] Rate limit retries exhausted — giving up')
+          return response
+        }
+
+        const waitSeconds = response.retryAfterSeconds || DEFAULT_429_WAIT_SECONDS
+        log.swush.warn({
+          endpoint,
+          rateLimitRetry: rateLimitRetries,
+          maxRateLimitRetries: MAX_429_RETRIES,
+          waitSeconds,
+          retryAfterHeader: response.retryAfterSeconds,
+        }, `[SWUSH] Rate limited (429) — waiting ${waitSeconds}s before retry ${rateLimitRetries}/${MAX_429_RETRIES}`)
+        await new Promise(resolve => setTimeout(resolve, waitSeconds * 1000))
+        // Don't consume a normal retry attempt for 429 — use separate counter
+        continue
+      }
+
+      // Don't retry on other client errors (4xx) except 408 (timeout)
       const isClientError = response.status >= 400 && response.status < 500
       const isRetryableClientError = response.status === 408
 
       if (isClientError && !isRetryableClientError) {
-        if (response.status === 429) {
-          log.swush.warn({
-            endpoint,
-            retryAfterSeconds: response.retryAfterSeconds,
-          }, '[SWUSH] Rate limited (429) — NOT retrying, returning immediately')
-        } else {
-          log.swush.warn(`[SWUSH] Non-retryable error ${response.status} on attempt ${attempt}`)
-        }
+        log.swush.warn(`[SWUSH] Non-retryable error ${response.status} on attempt ${attempt}`)
         return response
       }
 
-      // If we have more attempts, wait and retry
+      // If we have more attempts, wait and retry (exponential backoff for 5xx/timeout)
       if (attempt <= maxRetries) {
         const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1) // 1s, 2s, 4s
         log.swush.warn({
@@ -310,6 +395,7 @@ export class SwushClient {
     log.swush.error({
       endpoint,
       totalAttempts: maxRetries + 1,
+      rateLimitRetries,
       lastStatus: lastResponse?.status,
       lastError: lastResponse?.error,
       lastDurationMs: lastResponse?.durationMs,
@@ -435,4 +521,12 @@ export function createSwushClient(): SwushClient {
     apiKey,
     timeout: DEFAULT_TIMEOUT_MS,
   })
+}
+
+/**
+ * Get remaining daily API budget.
+ * Used by cron job to decide whether to start syncing a game.
+ */
+export async function getRemainingBudget(): Promise<number> {
+  return dailyBudget.getRemaining()
 }

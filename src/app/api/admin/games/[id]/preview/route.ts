@@ -39,7 +39,7 @@ export async function GET(
     }
 
     // Build the internal Connected Content URL
-    const brazeToken = process.env.BRAZE_API_TOKEN || process.env.NEXT_PUBLIC_BRAZE_API_TOKEN
+    const brazeToken = process.env.BRAZE_API_TOKEN
     if (!brazeToken) {
       return errorResponse('Braze API token not configured', 500)
     }

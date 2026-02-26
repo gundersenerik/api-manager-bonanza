@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase/server'
-import { createSwushClient } from './swush-client'
+import { createSwushClient, BUDGET_EXHAUSTED_PREFIX } from './swush-client'
 import { alertService } from './alert-service'
 import { log } from '@/lib/logger'
 import {
@@ -283,20 +283,38 @@ export class SyncService {
     onProgress?.(1, totalPages)
 
     // Fetch and save remaining pages
-    let rateLimitAborted = false
+    // Adaptive delay: starts at 1100ms, increases to 2000ms after slow responses or 429 recovery
+    let currentDelay = 1100
+    let budgetExhausted = false
     for (let page = 2; page <= totalPages; page++) {
+      const pageStartTime = Date.now()
       const response = await this.swush.getUsers(game.subsite_key, game.game_key, page, undefined, true, round)
+      const pageDurationMs = Date.now() - pageStartTime
 
-      // Abort immediately on rate limit — don't keep hammering SWUSH
+      // Budget exhaustion — daily limit reached, abort entire sync (no point continuing)
+      if (response.status === 429 && response.error?.startsWith(BUDGET_EXHAUSTED_PREFIX)) {
+        log.sync.warn({
+          page,
+          totalPages,
+          gameKey: game.game_key,
+        }, 'Daily API budget exhausted — aborting user sync')
+        budgetExhausted = true
+        break
+      }
+
+      // Server 429 after retry exhaustion — mark page as failed, continue to next
+      // (requestWithRetry already waited and retried, so this is the final result)
       if (response.status === 429) {
         log.sync.warn({
           page,
           totalPages,
           gameKey: game.game_key,
-          retryAfterSeconds: response.retryAfterSeconds,
-        }, 'SWUSH rate limit hit — aborting user sync for this game')
-        rateLimitAborted = true
-        break
+        }, 'Rate limit persisted after retries — skipping page')
+        errorCount++
+        failedPages.push(page)
+        // Slow down for subsequent requests after a 429
+        currentDelay = 2000
+        continue
       }
 
       if (response.error || !response.data) {
@@ -322,17 +340,24 @@ export class SyncService {
 
       onProgress?.(page, totalPages)
 
-      // Delay between page requests — SWUSH allows max 1 req/sec
-      await new Promise(resolve => setTimeout(resolve, 1100))
+      // Adaptive delay: slow down after slow responses (>5s), speed up after fast ones
+      if (pageDurationMs > 5000) {
+        currentDelay = 2000
+      } else if (currentDelay > 1100 && pageDurationMs < 3000) {
+        // Gradually return to normal delay after recovery
+        currentDelay = 1100
+      }
+
+      await new Promise(resolve => setTimeout(resolve, currentDelay))
     }
 
     // Log summary
-    if (rateLimitAborted) {
+    if (budgetExhausted) {
       log.sync.warn({
         syncedCount,
         totalPages,
         gameKey: game.game_key,
-      }, 'User sync aborted due to SWUSH rate limit — partial data saved')
+      }, 'User sync aborted due to budget exhaustion — partial data saved')
     } else if (failedPages.length > 0) {
       log.sync.warn({
         syncedCount,
@@ -349,11 +374,11 @@ export class SyncService {
       }, 'Completed users sync successfully')
     }
 
-    // Rate limit abort: partial success — data saved so far is valid, retry next cron run
-    if (rateLimitAborted) {
+    // Budget exhaustion: abort entire sync — no point trying more pages
+    if (budgetExhausted) {
       return {
         success: false,
-        error: `Rate limited by SWUSH — synced ${syncedCount} users before abort`,
+        error: `${BUDGET_EXHAUSTED_PREFIX} Synced ${syncedCount} users before budget ran out`,
         usersSynced: syncedCount,
       }
     }

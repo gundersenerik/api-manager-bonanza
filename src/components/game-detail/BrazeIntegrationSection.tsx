@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Code, Play } from 'lucide-react'
 import { Game } from '@/types'
@@ -40,8 +41,22 @@ interface BrazeIntegrationSectionProps {
 }
 
 export function BrazeIntegrationSection({ game }: BrazeIntegrationSectionProps) {
+  const [brazeToken, setBrazeToken] = useState<string>('Loading...')
   const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : ''
-  const brazeToken = process.env.NEXT_PUBLIC_BRAZE_API_TOKEN || 'TOKEN_NOT_CONFIGURED'
+
+  useEffect(() => {
+    fetch('/api/admin/braze-token')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.token) {
+          setBrazeToken(data.token)
+        } else {
+          setBrazeToken('TOKEN_NOT_CONFIGURED')
+        }
+      })
+      .catch(() => setBrazeToken('TOKEN_NOT_CONFIGURED'))
+  }, [])
+
   const connectedContentUrl = `${apiBaseUrl}/api/v1/users/{{$\{user_id}}}/games/${game.game_key}`
   const connectedContentString = `{% connected_content ${connectedContentUrl}?token=${brazeToken} :save response %}`
 
