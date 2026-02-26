@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase/server'
 import { createSwushClient, BUDGET_EXHAUSTED_PREFIX } from './swush-client'
 import { alertService } from './alert-service'
+import { isGameSeasonEnded } from '@/lib/game-utils'
 import { log } from '@/lib/logger'
 import {
   Game,
@@ -745,6 +746,12 @@ export class SyncService {
     const gamesDue: Game[] = []
 
     for (const game of games as Game[]) {
+      // Skip games whose season has ended — no new data to sync
+      if (isGameSeasonEnded(game)) {
+        log.sync.debug({ gameKey: game.game_key, currentRound: game.current_round, totalRounds: game.total_rounds }, 'Skipping ended season')
+        continue
+      }
+
       // Never synced - always sync
       if (!game.last_synced_at) {
         log.sync.info({ gameKey: game.game_key }, 'Game never synced, adding to queue')
